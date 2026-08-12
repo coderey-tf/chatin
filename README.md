@@ -1,36 +1,57 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# 🔌 Chatin
 
-## Getting Started
+Multi-tenant WhatsApp Business API dashboard with built-in lead collector chatbot.
 
-First, run the development server:
+## Quickstart
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+cp .env.example .env
+# Edit .env with your KirimDev API key
+pnpm install
+pnpm build
+pnpm start
+# Dashboard: http://localhost:3004
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## What it does
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+- **Onboard clients**: Generate Embedded Signup links → clients connect their WhatsApp Business Account (WABA)
+- **Automated lead collection**: Generic chatbot captures customer data (name, phone, service, date) via WhatsApp
+- **Template-driven**: 5 industry presets (wedding, klinik, rental, toko, generic) — fully customizable per client
+- **Pass-through billing**: Meta Cloud API fees are billed directly to client's WABA — you only pay KirimDev platform subscription
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Architecture
 
-## Learn More
+```
+WhatsApp → KirimDev (Meta BSP) → Chatin webhook → Chat engine → Auto-reply back to WhatsApp
+                                                          ↓
+                                                     SQLite leads
+```
 
-To learn more about Next.js, take a look at the following resources:
+**Stack**: Next.js 16 + React 19 + TypeScript + Tailwind CSS 4 + SQLite
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Chat API
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```bash
+POST /api/chat
+{
+  "message": "Halo, saya mau nikah di gedung",
+  "customer_id": "cus_xxx",
+  "phone": "+628123456789"
+}
+```
 
-## Deploy on Vercel
+Returns: `{ reply, autoReply, handoverToAdmin, leadSaved, leadData }`
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Documentation
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+See [AGENTS.md](./AGENTS.md) for full technical docs (for AI agents and developers).
+
+## Deploy
+
+```bash
+pnpm build
+pm2 start pm2.config.cjs   # or: pm2 restart chatin
+```
+
+VPS config: port 3004, nginx reverse proxy, SSL.

@@ -169,13 +169,12 @@ export default function CustomerDetailPage({
             <h1 className="text-2xl font-bold mb-2">{customer.name}</h1>
             <p className="text-zinc-400">{customer.email || 'No email'} • {customer.id}</p>
           </div>
-          <span className={`px-3 py-1 rounded-full text-sm ${
-            customer.status === 'active' ? 'bg-green-500/20 text-green-400' :
-            customer.status === 'pending' ? 'bg-yellow-500/20 text-yellow-400' :
-            'bg-zinc-500/20 text-zinc-400'
-          }`}>
-            {customer.status}
-          </span>
+          <div className="flex items-center gap-2">
+            <Link href={`/dashboard/customers/${params.id}/bot`}
+              className="text-sm bg-blue-500/20 text-blue-400 px-3 py-1.5 rounded-lg hover:bg-blue-500/30 transition">🤖 Bot Settings</Link>
+            <Link href={`/dashboard/customers/${params.id}/leads`}
+              className="text-sm bg-purple-500/20 text-purple-400 px-3 py-1.5 rounded-lg hover:bg-purple-500/30 transition">📊 Leads</Link>
+          </div>
         </div>
       </div>
 

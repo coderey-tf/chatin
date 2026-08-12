@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 const AUTH_TOKEN = process.env.CHATIN_AUTH_TOKEN
 
 // Public routes that don't require auth
-const PUBLIC_PATHS = ['/api/webhooks', '/onboarded', '/onboard-failed', '/favicon.ico', '/_next']
+const PUBLIC_PATHS = ['/api/webhooks', '/api/auth', '/api/chat', '/onboarded', '/onboard-failed', '/favicon.ico', '/_next']
 
 function isPublic(pathname: string): boolean {
   return PUBLIC_PATHS.some(p => pathname === p || pathname.startsWith(p + '/'))
