@@ -9,12 +9,11 @@ Core architecture:
 - Meta fees pass-through (billed to each client's WABA, not to us)                
 - Chatin is platform owner, each client = customer with their own WABA                                 
 - Chatbot: generic, template-driven, 5 presets (wedding_decor, jasa_rental, klinik, toko_online, generic)                        
-- DB: Supabase PostgreSQL with native JSONB & RLS policies (`profiles`, `customers`, `setup_links`, `bot_configs`, `leads`, `message_logs`, `webhook_events`, `subscriptions`, `invoices`)
-- Auth: Supabase Auth (Google OAuth + Email/Password) with 60-day inactive user cleanup trigger                                              
-- Live Inbox: `/dashboard/inbox` — 2-column WhatsApp-style chat UI with Supabase Realtime & 24h window badge
-- Billing: `/dashboard/billing` — Plans (Starter, Pro, Enterprise), active limits, and `/api/webhooks/payment` agnostic payment webhook
+- DB: Supabase PostgreSQL with native JSONB & RLS policies (`profiles` with `is_onboarded` flag, `customers`, `setup_links`, `bot_configs`, `leads`, `message_logs`, `webhook_events`, `subscriptions`, `invoices`)
+- Auth & Onboarding: Supabase Auth + 3-step Onboarding Wizard (`/onboarding` & `/api/onboarding/complete`) auto-redirecting new users until `is_onboarded = true`.
+- Layout: 100% Client-Focused Sidebar Layout (`Sidebar.tsx`) with direct 1-click access to `/dashboard/bot`, `/dashboard/leads`, `/dashboard/inbox`, and `/dashboard/billing`.
 4-step funnel: greeting → extract (keyword/date/text/location/select) → pricelist + handover → followup                          
 Main API: POST /api/chat (public), Webhook: POST /api/webhooks/kirimdev (inbound → partial lead save → engine → auto-reply → mark-as-read)
-Dashboard: `/dashboard/customers/[id]/bot` (bot config), `/leads` (leads list with status edit, delete, search, CSV export), `/inbox` (live chat thread), `/billing` (subscriptions)
+Dashboard: `/dashboard/bot` (bot config), `/dashboard/leads` (leads management), `/dashboard/inbox` (live chat thread), `/dashboard/billing` (subscriptions)
 All DB funcs in `src/lib/db.ts`, engine in `src/lib/chat-engine.ts`, parser in `src/lib/lead-parser.ts`
 Read AGENTS.md for full technical docs

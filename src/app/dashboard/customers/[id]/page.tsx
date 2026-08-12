@@ -16,12 +16,6 @@ interface CustomerDetail {
   onboarded_at: string | null
   created_at: string
   updated_at: string
-  whatsapp_accounts?: Array<{
-    phone_number_id: string
-    phone_number: string
-    status: string
-    name?: string
-  }>
 }
 
 interface SetupLink {
@@ -48,6 +42,12 @@ export default function CustomerDetailPage({
   const [generatingLink, setGeneratingLink] = useState(false)
   const [lastSetupUrl, setLastSetupUrl] = useState<string | null>(null)
 
+  // Edit Phone Modal / Form
+  const [editingPhone, setEditingPhone] = useState(false)
+  const [inputPhone, setInputPhone] = useState('')
+  const [inputPhoneId, setInputPhoneId] = useState('')
+  const [updatingPhone, setUpdatingPhone] = useState(false)
+
   // Send message test
   const [sendTo, setSendTo] = useState('')
   const [sendText, setSendText] = useState('')
@@ -65,6 +65,8 @@ export default function CustomerDetailPage({
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Failed to fetch')
       setCustomer(data.data)
+      setInputPhone(data.data.phone_number || '')
+      setInputPhoneId(data.data.phone_number_id || '')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load customer')
     } finally {
@@ -81,6 +83,28 @@ export default function CustomerDetailPage({
       }
     } catch {
       // Ignore
+    }
+  }
+
+  const handleUpdatePhone = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setUpdatingPhone(true)
+    try {
+      const res = await fetch(`/api/customers/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          phone_number: inputPhone.trim(),
+          phone_number_id: inputPhoneId.trim(),
+        }),
+      })
+      if (!res.ok) throw new Error('Failed to update phone number')
+      setEditingPhone(false)
+      fetchCustomer()
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Error updating phone')
+    } finally {
+      setUpdatingPhone(false)
     }
   }
 
@@ -157,92 +181,121 @@ export default function CustomerDetailPage({
   }
 
   return (
-    <div className="max-w-4xl">
-      <div className="mb-8">
+    <div className="max-w-4xl space-y-6">
+      <div>
         <Link
           href="/dashboard/customers"
-          className="text-zinc-400 hover:text-white text-sm mb-4 inline-block"
+          className="text-zinc-400 hover:text-white text-xs mb-3 inline-block font-semibold"
         >
-          ← Back
+          ← Kembali ke Daftar Tenant
         </Link>
         <div className="flex items-start justify-between">
           <div>
-            <h1 className="text-2xl font-bold mb-2">{customer.name}</h1>
-            <p className="text-zinc-400">{customer.email || 'No email'} • {customer.id}</p>
+            <h1 className="text-2xl font-bold text-white tracking-tight">{customer.name}</h1>
+            <p className="text-zinc-400 text-xs mt-0.5">{customer.email || 'Tidak ada email'} • ID: <span className="font-mono text-zinc-300">{customer.id}</span></p>
           </div>
           <div className="flex items-center gap-2">
             <Link href={`/dashboard/customers/${id}/bot`}
-              className="text-sm bg-blue-500/20 text-blue-400 px-3 py-1.5 rounded-lg hover:bg-blue-500/30 transition">🤖 Bot Settings</Link>
+              className="text-xs bg-blue-500/20 text-blue-400 border border-blue-500/30 px-3 py-1.5 rounded-xl hover:bg-blue-500/30 transition font-semibold">🤖 Setting Bot</Link>
             <Link href={`/dashboard/customers/${id}/leads`}
-              className="text-sm bg-purple-500/20 text-purple-400 px-3 py-1.5 rounded-lg hover:bg-purple-500/30 transition">📊 Leads</Link>
+              className="text-xs bg-purple-500/20 text-purple-400 border border-purple-500/30 px-3 py-1.5 rounded-xl hover:bg-purple-500/30 transition font-semibold">📊 Leads</Link>
           </div>
         </div>
       </div>
 
-      {/* WhatsApp status */}
-      <div className="bg-zinc-900 rounded-xl p-6 mb-6">
-        <h2 className="font-semibold mb-4">WhatsApp Connection</h2>
-        {customer.phone_number_id ? (
-          <div className="space-y-2 text-sm">
-            <div className="flex justify-between">
-              <span className="text-zinc-500">Phone Number</span>
-              <span>{customer.phone_number || '-'}</span>
+      {/* WhatsApp status & Edit Phone Form */}
+      <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 shadow-xl">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="font-bold text-white text-base flex items-center gap-2">
+            <span>📱</span> WhatsApp Business Connection
+          </h2>
+          <button
+            onClick={() => setEditingPhone(!editingPhone)}
+            className="text-xs font-semibold text-emerald-400 hover:text-emerald-300 bg-emerald-500/10 border border-emerald-500/20 px-3 py-1 rounded-xl transition"
+          >
+            {editingPhone ? 'Batal' : '✏️ Update Nomor WA'}
+          </button>
+        </div>
+
+        {editingPhone ? (
+          <form onSubmit={handleUpdatePhone} className="space-y-4 bg-zinc-950/60 p-4 border border-zinc-800 rounded-xl">
+            <div>
+              <label className="block text-xs font-semibold text-zinc-300 mb-1">Nomor WhatsApp Bisnis</label>
+              <input
+                type="text"
+                placeholder="+6281234567890"
+                value={inputPhone}
+                onChange={(e) => setInputPhone(e.target.value)}
+                className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white font-mono"
+              />
             </div>
-            <div className="flex justify-between">
-              <span className="text-zinc-500">Phone Number ID</span>
-              <span className="font-mono text-xs">{customer.phone_number_id}</span>
+            <div>
+              <label className="block text-xs font-semibold text-zinc-300 mb-1">Phone Number ID Meta (Opsional)</label>
+              <input
+                type="text"
+                placeholder="100928374..."
+                value={inputPhoneId}
+                onChange={(e) => setInputPhoneId(e.target.value)}
+                className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white font-mono"
+              />
             </div>
-            <div className="flex justify-between">
-              <span className="text-zinc-500">Status</span>
-              <span>{customer.wa_account_status || 'connected'}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-zinc-500">Onboarded</span>
-              <span>{customer.onboarded_at ? new Date(customer.onboarded_at).toLocaleString() : '-'}</span>
-            </div>
-          </div>
-        ) : (
-          <div className="text-center py-6">
-            <p className="text-zinc-500 mb-4">Belum terhubung ke WhatsApp</p>
             <button
-              onClick={generateSetupLink}
-              disabled={generatingLink}
-              className="bg-white text-zinc-900 px-4 py-2 rounded-lg font-semibold hover:bg-zinc-100 transition disabled:opacity-50"
+              type="submit"
+              disabled={updatingPhone}
+              className="bg-emerald-500 text-zinc-950 font-bold px-4 py-2 rounded-xl text-xs hover:bg-emerald-400 transition disabled:opacity-50"
             >
-              {generatingLink ? 'Generating...' : 'Generate Setup Link'}
+              {updatingPhone ? 'Menyimpan...' : 'Simpan Perubahan Nomor'}
             </button>
+          </form>
+        ) : (
+          <div className="space-y-3 text-xs">
+            <div className="flex justify-between py-1 border-b border-zinc-800/60">
+              <span className="text-zinc-400">Nomor WhatsApp</span>
+              <span className="font-semibold text-emerald-400 font-mono">{customer.phone_number || 'Belum terisi'}</span>
+            </div>
+            <div className="flex justify-between py-1 border-b border-zinc-800/60">
+              <span className="text-zinc-400">Phone Number ID Meta</span>
+              <span className="font-mono text-zinc-300">{customer.phone_number_id || '-'}</span>
+            </div>
+            <div className="flex justify-between py-1 border-b border-zinc-800/60">
+              <span className="text-zinc-400">Status Koneksi</span>
+              <span className="font-semibold text-white capitalize">{customer.wa_account_status || 'Active'}</span>
+            </div>
           </div>
         )}
       </div>
 
       {/* Setup Links */}
-      <div className="bg-zinc-900 rounded-xl p-6 mb-6">
+      <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="font-semibold">Setup Links</h2>
+          <div>
+            <h2 className="font-bold text-white text-base">Setup Links (Embedded Signup)</h2>
+            <p className="text-xs text-zinc-400">Link pendaftaran langsung Meta Embedded Signup untuk WABA</p>
+          </div>
           <button
             onClick={generateSetupLink}
             disabled={generatingLink}
-            className="text-sm bg-zinc-800 text-white px-3 py-1 rounded-lg hover:bg-zinc-700 transition disabled:opacity-50"
+            className="text-xs bg-white text-zinc-950 font-bold px-3 py-1.5 rounded-xl hover:bg-zinc-100 transition disabled:opacity-50"
           >
-            {generatingLink ? '...' : '+ New Link'}
+            {generatingLink ? '...' : '+ Generate Link'}
           </button>
         </div>
 
         {lastSetupUrl && (
-          <div className="bg-green-500/10 border border-green-500/20 rounded-lg p-4 mb-4">
-            <div className="text-sm text-green-400 mb-2">✅ Setup link generated (copy now - shown once):</div>
+          <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-4 mb-4">
+            <div className="text-xs text-emerald-400 font-bold mb-2">✅ Setup link berhasil dibuat (disalin sekarang):</div>
             <div className="flex gap-2">
               <input
                 value={lastSetupUrl}
                 readOnly
-                className="flex-1 bg-zinc-800 rounded px-3 py-2 text-xs font-mono"
+                className="flex-1 bg-zinc-950 rounded-xl px-3 py-2 text-xs font-mono text-white border border-zinc-800"
               />
               <button
                 onClick={() => {
                   navigator.clipboard.writeText(lastSetupUrl)
-                  alert('Copied!')
+                  alert('Copied link!')
                 }}
-                className="bg-green-500 text-white px-3 py-2 rounded text-sm"
+                className="bg-emerald-500 text-zinc-950 font-bold px-3 py-2 rounded-xl text-xs hover:bg-emerald-400 transition"
               >
                 Copy
               </button>
@@ -251,20 +304,20 @@ export default function CustomerDetailPage({
         )}
 
         {links.length === 0 ? (
-          <p className="text-sm text-zinc-500">No setup links yet</p>
+          <p className="text-xs text-zinc-500">Belum ada setup link aktif.</p>
         ) : (
           <div className="space-y-2">
             {links.map((link) => (
-              <div key={link.id} className="flex items-center justify-between bg-zinc-800 rounded-lg p-3 text-sm">
+              <div key={link.id} className="flex items-center justify-between bg-zinc-950/60 border border-zinc-800 rounded-xl p-3 text-xs">
                 <div>
-                  <div className="font-mono text-xs">{link.id}</div>
-                  <div className="text-zinc-500 text-xs">
-                    {link.status} • {link.token_last4 ? `...${link.token_last4}` : ''} • Created: {new Date(link.created_at).toLocaleDateString()}
+                  <div className="font-mono text-[11px] text-white">{link.id}</div>
+                  <div className="text-zinc-500 text-[10px] mt-0.5">
+                    {link.status} • {link.token_last4 ? `...${link.token_last4}` : ''} • Dibuat: {new Date(link.created_at).toLocaleDateString('id-ID')}
                   </div>
                 </div>
-                <span className={`px-2 py-0.5 rounded-full text-xs ${
-                  link.status === 'active' ? 'bg-green-500/20 text-green-400' :
-                  link.status === 'consumed' ? 'bg-blue-500/20 text-blue-400' :
+                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+                  link.status === 'active' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' :
+                  link.status === 'consumed' ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30' :
                   'bg-zinc-500/20 text-zinc-400'
                 }`}>
                   {link.status}
@@ -277,32 +330,32 @@ export default function CustomerDetailPage({
 
       {/* Send test message */}
       {customer.phone_number_id && (
-        <div className="bg-zinc-900 rounded-xl p-6 mb-6">
-          <h2 className="font-semibold mb-4">Send Test Message</h2>
+        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
+          <h2 className="font-bold text-white text-base mb-4">Uji Coba Kirim Pesan Outbound</h2>
           <div className="space-y-4">
             <input
               type="text"
               value={sendTo}
               onChange={(e) => setSendTo(e.target.value)}
-              placeholder="To: +628xxxxx"
-              className="w-full bg-zinc-800 rounded-xl px-4 py-3 text-white placeholder-zinc-600"
+              placeholder="Tujuan WhatsApp: +628xxxxx"
+              className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-xs text-white placeholder-zinc-500"
             />
             <textarea
               value={sendText}
               onChange={(e) => setSendText(e.target.value)}
-              placeholder="Message body..."
+              placeholder="Isi pesan uji coba..."
               rows={3}
-              className="w-full bg-zinc-800 rounded-xl px-4 py-3 text-white placeholder-zinc-600"
+              className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-xs text-white placeholder-zinc-500"
             />
             <button
               onClick={sendMessage}
               disabled={sending || !sendTo || !sendText}
-              className="w-full bg-white text-zinc-900 rounded-xl py-3 font-semibold hover:bg-zinc-100 transition disabled:opacity-50"
+              className="w-full bg-emerald-500 text-zinc-950 font-bold rounded-xl py-3 text-xs hover:bg-emerald-400 transition disabled:opacity-50"
             >
-              {sending ? 'Sending...' : 'Send Message'}
+              {sending ? 'Mengirim...' : 'Kirim Pesan Uji Coba'}
             </button>
             {sendResult && (
-              <div className="text-sm p-3 rounded-lg bg-zinc-800">
+              <div className="text-xs p-3 rounded-xl bg-zinc-950 border border-zinc-800 font-mono">
                 {sendResult}
               </div>
             )}
@@ -311,13 +364,14 @@ export default function CustomerDetailPage({
       )}
 
       {/* Danger zone */}
-      <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-6">
-        <h2 className="font-semibold text-red-400 mb-4">Danger Zone</h2>
+      <div className="bg-red-500/10 border border-red-500/20 rounded-2xl p-6">
+        <h2 className="font-bold text-red-400 text-sm mb-2">Danger Zone</h2>
+        <p className="text-xs text-zinc-400 mb-4">Arsipkan customer ini jika sudah tidak aktif lagi</p>
         <button
           onClick={archiveCustomer}
-          className="bg-red-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-red-700 transition"
+          className="bg-red-600 hover:bg-red-500 text-white px-4 py-2 rounded-xl text-xs font-semibold transition"
         >
-          Archive Customer
+          Arsipkan Customer
         </button>
       </div>
     </div>

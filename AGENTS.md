@@ -61,6 +61,7 @@ Stores user profile information, auto-created upon signup via PostgreSQL trigger
 | full_name | TEXT | Display name |
 | avatar_url | TEXT | Profile avatar / Google account picture |
 | role | TEXT | Default `'admin'` |
+| is_onboarded | BOOLEAN | `true`=completed onboarding wizard, `false`=needs onboarding |
 | last_active_at | TIMESTAMPTZ | Updated on activity (used for 60-day cleanup) |
 
 ### customers
@@ -112,13 +113,14 @@ Customer SaaS billing & plan tier limits (`starter`, `pro`, `enterprise`).
 
 ---
 
-## Authentication System
+## Authentication & Network Proxying
 
 Chatin uses **Supabase Auth** with full support for:
 1. **Google OAuth 2.0**: Single click login/signup via Google.
 2. **Email & Password**: Open registration ([/register](file:///d:/Project%20Website/chatin/src/app/register/page.tsx)) and login ([/login](file:///d:/Project%20Website/chatin/src/app/login/page.tsx)).
-3. **Session Middleware**: [middleware.ts](file:///d:/Project%20Website/chatin/middleware.ts) verifies JWT tokens on all `/dashboard/*` and `/api/*` routes.
-4. **Cleanup Policy**: Users inactive for over 60 days are cleaned up automatically via scheduled cron tasks.
+3. **Next.js 16 Proxy / Middleware**: Request proxying and JWT session verification are implemented in [src/proxy.ts](file:///d:/Project%20Website/chatin/src/proxy.ts) and delegated by [middleware.ts](file:///d:/Project%20Website/chatin/middleware.ts).
+4. **Server Component Auth Guard**: [DashboardLayout](file:///d:/Project%20Website/chatin/src/app/dashboard/layout.tsx) validates the session server-side (`if (!user) redirect('/login')`) before rendering dashboard pages or making DB queries.
+5. **Cleanup Policy**: Users inactive for over 60 days are cleaned up automatically via scheduled cron tasks.
 
 ---
 
@@ -218,8 +220,11 @@ interface BotField {
 │   │   └── webhooks/payment/route.ts  # POST Payment gateway webhook receiver
 │   │
 │   └── dashboard/
-│       ├── page.tsx                    # Dashboard overview (stats)
-│       ├── layout.tsx                  # Dashboard layout (nav, user profile, sticky header)
+│       ├── page.tsx                    # Dashboard overview (client stats & quick access)
+│       ├── layout.tsx                  # Dashboard layout (Sidebar, auth guard)
+│       ├── Sidebar.tsx                 # Desktop sidebar & mobile slide-over drawer
+│       ├── bot/page.tsx                # Client direct route for bot settings
+│       ├── leads/page.tsx              # Client direct route for leads management
 │       ├── loading.tsx                 # Skeleton loader
 │       ├── error.tsx                   # Error boundary
 │       ├── not-found.tsx               # 404 page
@@ -227,11 +232,11 @@ interface BotField {
 │       ├── inbox/page.tsx              # Live conversation inbox (Realtime WS)
 │       ├── messages/page.tsx           # Message logs
 │       └── customers/
-│           ├── page.tsx                # Customer list
+│           ├── page.tsx                # Customer list (operator view)
 │           ├── new/page.tsx            # Add customer
 │           └── [id]/
 │               ├── page.tsx            # Customer detail
-│               ├── bot/page.tsx        # Bot settings (template, fields, pricelist)
+│               ├── bot/page.tsx        # Bot settings
 │               └── leads/page.tsx      # Leads list (status dropdown, search, CSV export)
 ```
 
@@ -246,8 +251,8 @@ KIRIMDEV_PHONE_NUMBER_ID=xxx          # Your platform's phone_number_id
 KIRIMDEV_TEAM_ID=xxx                  # KirimDev team ID
 KIRIMDEV_APP_URL=https://chatin.coderey.dev  # For redirect URLs
 
-# Webhook (optional but recommended)
-KIRIMDEV_WEBHOOK_SECRET=xxx           # HMAC secret for webhook verification
+# Webhook (required for HMAC verification)
+KIRIMDEV_WEBHOOK_SECRET=whsec_xxx     # HMAC secret for webhook verification
 
 # Supabase Credentials (required)
 NEXT_PUBLIC_SUPABASE_URL=https://horuzytvjcysjstdglsm.supabase.co

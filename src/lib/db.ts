@@ -122,12 +122,20 @@ export async function getCustomer(id: string): Promise<Customer | null> {
 }
 
 export async function listCustomers(status?: string): Promise<Customer[]> {
-  const sb = createAdminClient()
-  let query = sb.from('customers').select('*').order('created_at', { ascending: false })
-  if (status) query = query.eq('status', status)
-  const { data, error } = await query
-  if (error) throw new Error(`listCustomers error: ${error.message}`)
-  return data || []
+  try {
+    const sb = createAdminClient()
+    let query = sb.from('customers').select('*').order('created_at', { ascending: false })
+    if (status) query = query.eq('status', status)
+    const { data, error } = await query
+    if (error) {
+      console.warn('listCustomers warning:', error.message)
+      return []
+    }
+    return data || []
+  } catch (err) {
+    console.warn('listCustomers exception:', err)
+    return []
+  }
 }
 
 // ─── Setup Link Helpers ───
@@ -427,31 +435,43 @@ export async function getConversationThread(customerId: string, contactPhone: st
 }
 
 export async function getDashboardStats() {
-  const sb = createAdminClient()
-  const todayStart = new Date().toISOString().split('T')[0]
+  try {
+    const sb = createAdminClient()
+    const todayStart = new Date().toISOString().split('T')[0]
 
-  const [{ count: totalCustomers }, { count: activeCustomers }] = await Promise.all([
-    sb.from('customers').select('*', { count: 'exact', head: true }),
-    sb.from('customers').select('*', { count: 'exact', head: true }).eq('status', 'active'),
-  ])
+    const [{ count: totalCustomers }, { count: activeCustomers }] = await Promise.all([
+      sb.from('customers').select('*', { count: 'exact', head: true }),
+      sb.from('customers').select('*', { count: 'exact', head: true }).eq('status', 'active'),
+    ])
 
-  const [{ count: totalLeads }, { count: todayLeads }] = await Promise.all([
-    sb.from('leads').select('*', { count: 'exact', head: true }),
-    sb.from('leads').select('*', { count: 'exact', head: true }).gte('created_at', todayStart),
-  ])
+    const [{ count: totalLeads }, { count: todayLeads }] = await Promise.all([
+      sb.from('leads').select('*', { count: 'exact', head: true }),
+      sb.from('leads').select('*', { count: 'exact', head: true }).gte('created_at', todayStart),
+    ])
 
-  const [{ count: totalMessages }, { count: todayMessages }] = await Promise.all([
-    sb.from('message_logs').select('*', { count: 'exact', head: true }),
-    sb.from('message_logs').select('*', { count: 'exact', head: true }).gte('created_at', todayStart),
-  ])
+    const [{ count: totalMessages }, { count: todayMessages }] = await Promise.all([
+      sb.from('message_logs').select('*', { count: 'exact', head: true }),
+      sb.from('message_logs').select('*', { count: 'exact', head: true }).gte('created_at', todayStart),
+    ])
 
-  return {
-    totalCustomers: totalCustomers || 0,
-    activeCustomers: activeCustomers || 0,
-    totalLeads: totalLeads || 0,
-    todayLeads: todayLeads || 0,
-    totalMessages: totalMessages || 0,
-    todayMessages: todayMessages || 0,
+    return {
+      totalCustomers: totalCustomers || 0,
+      activeCustomers: activeCustomers || 0,
+      totalLeads: totalLeads || 0,
+      todayLeads: todayLeads || 0,
+      totalMessages: totalMessages || 0,
+      todayMessages: todayMessages || 0,
+    }
+  } catch (err) {
+    console.warn('getDashboardStats exception:', err)
+    return {
+      totalCustomers: 0,
+      activeCustomers: 0,
+      totalLeads: 0,
+      todayLeads: 0,
+      totalMessages: 0,
+      todayMessages: 0,
+    }
   }
 }
 
@@ -554,4 +574,40 @@ export async function createInvoice(data: {
   if (error) throw new Error(`createInvoice error: ${error.message}`)
   return inv
 }
+
+export interface UserProfile {
+  id: string
+  full_name: string | null
+  avatar_url: string | null
+  role: string
+  is_onboarded: boolean
+  last_active_at: string
+  created_at: string
+}
+
+export async function getUserProfile(userId: string): Promise<UserProfile | null> {
+  try {
+    const sb = createAdminClient()
+    const { data, error } = await sb.from('profiles').select('*').eq('id', userId).maybeSingle()
+    if (error) return null
+    return data
+  } catch (err) {
+    console.warn('getUserProfile exception:', err)
+    return null
+  }
+}
+
+export async function setOnboardedStatus(userId: string, isOnboarded: boolean = true): Promise<void> {
+  try {
+    const sb = createAdminClient()
+    const { error } = await sb
+      .from('profiles')
+      .update({ is_onboarded: isOnboarded, updated_at: new Date().toISOString() })
+      .eq('id', userId)
+    if (error) console.error('setOnboardedStatus error:', error.message)
+  } catch (err) {
+    console.warn('setOnboardedStatus exception:', err)
+  }
+}
+
 

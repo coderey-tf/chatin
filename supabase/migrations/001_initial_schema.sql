@@ -11,10 +11,13 @@ CREATE TABLE IF NOT EXISTS public.profiles (
   full_name TEXT,
   avatar_url TEXT,
   role TEXT NOT NULL DEFAULT 'admin',
+  is_onboarded BOOLEAN DEFAULT false,
   last_active_at TIMESTAMPTZ DEFAULT now(),
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()
 );
+
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS is_onboarded BOOLEAN DEFAULT false;
 
 -- Trigger to auto-create profile on signup
 CREATE OR REPLACE FUNCTION public.handle_new_user()
@@ -207,5 +210,19 @@ CREATE POLICY "anon_rw_leads" ON public.leads FOR ALL USING (true);
 CREATE POLICY "anon_insert_msgs" ON public.message_logs FOR INSERT WITH CHECK (true);
 CREATE POLICY "anon_insert_webhooks" ON public.webhook_events FOR INSERT WITH CHECK (true);
 
+-- ─── SCHEMA PERMISSIONS ───
+GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
+GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated, service_role;
+GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated, service_role;
+GRANT ALL ON ALL ROUTINES IN SCHEMA public TO anon, authenticated, service_role;
+
 -- ─── REALTIME ───
-ALTER PUBLICATION supabase_realtime ADD TABLE public.message_logs;
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables 
+    WHERE pubname = 'supabase_realtime' AND tablename = 'message_logs'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.message_logs;
+  END IF;
+END $$;

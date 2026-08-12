@@ -1,11 +1,12 @@
-import Link from 'next/link'
 import type { Metadata } from 'next'
+import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
-import { UserNav } from './UserNav'
+import { getUserProfile, listCustomers, setOnboardedStatus } from '@/lib/db'
+import { Sidebar } from './Sidebar'
 
 export const metadata: Metadata = {
-  title: 'Chatin Dashboard',
-  description: 'Multi-tenant WhatsApp dashboard via KirimDev',
+  title: 'Chatin — Multi-Tenant WhatsApp Business API Dashboard',
+  description: 'Manage WABA clients, lead collection chatbot, and live inbox',
 }
 
 export default async function DashboardLayout({
@@ -16,71 +17,41 @@ export default async function DashboardLayout({
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
 
+  if (!user) {
+    redirect('/login?redirect=/dashboard')
+  }
+
+  // Check onboarding status
+  const profile = await getUserProfile(user.id)
+  const customers = await listCustomers()
+
+  if (customers.length > 0) {
+    // If user already has customer(s), ensure is_onboarded is true so they stay logged in
+    if (!profile || profile.is_onboarded === false) {
+      await setOnboardedStatus(user.id, true)
+    }
+  } else if (profile && profile.is_onboarded === false) {
+    // Only redirect to /onboarding if user has 0 customers and hasn't onboarded
+    redirect('/onboarding')
+  }
+
   const userEmail = user?.email
-  const userName = user?.user_metadata?.full_name || user?.user_metadata?.name
-  const avatarUrl = user?.user_metadata?.avatar_url || user?.user_metadata?.picture
+  const userName = profile?.full_name || user?.user_metadata?.full_name || user?.user_metadata?.name
+  const avatarUrl = profile?.avatar_url || user?.user_metadata?.avatar_url || user?.user_metadata?.picture
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-zinc-100">
-      {/* Navigation */}
-      <nav className="border-b border-zinc-800 bg-zinc-950/80 backdrop-blur sticky top-0 z-40">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16">
-            <div className="flex items-center gap-6 md:gap-8">
-              <Link href="/dashboard" className="text-xl font-bold tracking-tight flex items-center gap-2">
-                <span>📱</span>
-                <span>Chatin</span>
-              </Link>
-              <div className="hidden md:flex items-center gap-6 text-sm">
-                <Link
-                  href="/dashboard"
-                  className="text-zinc-400 hover:text-white transition font-medium"
-                >
-                  Overview
-                </Link>
-                <Link
-                  href="/dashboard/inbox"
-                  className="text-zinc-400 hover:text-white transition font-medium flex items-center gap-1.5"
-                >
-                  <span>💬</span> Inbox
-                </Link>
-                <Link
-                  href="/dashboard/customers"
-                  className="text-zinc-400 hover:text-white transition font-medium"
-                >
-                  Customers
-                </Link>
-                <Link
-                  href="/dashboard/messages"
-                  className="text-zinc-400 hover:text-white transition font-medium"
-                >
-                  Messages
-                </Link>
-                <Link
-                  href="/dashboard/billing"
-                  className="text-zinc-400 hover:text-white transition font-medium flex items-center gap-1"
-                >
-                  <span>💳</span> Billing
-                </Link>
-                <Link
-                  href="/dashboard/customers/new"
-                  className="text-zinc-400 hover:text-white transition font-medium"
-                >
-                  + Customer
-                </Link>
-              </div>
-            </div>
+    <div className="min-h-screen bg-zinc-950 text-zinc-100 font-sans antialiased selection:bg-emerald-500 selection:text-zinc-950">
+      
+      {/* Sidebar (Desktop + Mobile Drawer) */}
+      <Sidebar userEmail={userEmail} userName={userName} avatarUrl={avatarUrl} />
 
-            {/* Right user nav */}
-            <UserNav email={userEmail} name={userName} avatarUrl={avatarUrl} />
-          </div>
-        </div>
-      </nav>
+      {/* Main Content Area */}
+      <div className="lg:ml-64 flex flex-col min-h-screen">
+        <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl w-full mx-auto">
+          {children}
+        </main>
+      </div>
 
-      {/* Main content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {children}
-      </main>
     </div>
   )
 }
