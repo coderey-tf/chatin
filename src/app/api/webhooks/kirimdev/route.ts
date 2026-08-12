@@ -13,7 +13,18 @@ interface StandardWebhookEvent {
   data: Record<string, unknown>
 }
 
-function parseWebhookPayload(rawBody: string): StandardWebhookEvent {
+/**
+ * Parse KirimDev webhook body.
+ * Real format (from logs):
+ *   POST body: {"entry": [{"id": "...", "changes": [{"field": "messages", "value": {
+ *     "contacts": [{"wa_id": "62851...", "profile": {"name": "..."}}],
+ *     "messages": [{"id": "wamid...", "from": "62851...", "text": {"body": "tess"}, "type": "text", "timestamp": "..."}]
+ *   }}]}]
+ *   Header: x-kirim-event: message.received
+ *   Header: x-kirim-event-id: wamid....
+ *   Header: x-kirim-signature: t=TIMESTAMP,v1=HEX
+ */
+function parseWebhookPayload(rawBody: string, headerEventType: string | null): StandardWebhookEvent {
   let parsed: Record<string, unknown> = {}
   try {
     const json = JSON.parse(rawBody)
@@ -24,43 +35,86 @@ function parseWebhookPayload(rawBody: string): StandardWebhookEvent {
     }
   } catch {}
 
-  const id = (parsed.id as string)
-    || (parsed.event_id as string)
-    || (parsed.message_id as string)
-    || `evt_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`
+  // 1. Type: from header x-kirim-event (most reliable) OR body OR entry field
+  let type = 'unknown'
+  if (headerEventType) {
+    type = headerEventType
+  } else if (typeof parsed.type === 'string') {
+    type = parsed.type
+  } else if (typeof parsed.event === 'string') {
+    type = parsed.event
+  } else if (Array.isArray(parsed.entry) && parsed.entry.length > 0) {
+    const entry = parsed.entry[0] as Record<string, unknown>
+    const changes = (entry?.changes as Record<string, unknown>[]) || []
+    const field = changes[0]?.field as string | undefined
+    if (field === 'messages') type = 'message.received'
+    else if (field) type = field
+  }
 
-  const type = (parsed.type as string)
-    || (parsed.event as string)
-    || (parsed.event_type as string)
-    || (parsed.name as string)
-    || (parsed.topic as string)
-    || (parsed.action as string)
-    || (parsed.message ? 'message.received' : 'unknown')
-
-  const data = (typeof parsed.data === 'object' && parsed.data !== null) ? (parsed.data as Record<string, unknown>)
-    : (typeof parsed.payload === 'object' && parsed.payload !== null) ? (parsed.payload as Record<string, unknown>)
-    : (typeof parsed.body === 'object' && parsed.body !== null) ? (parsed.body as Record<string, unknown>)
-    : parsed
+  // 2. ID: for Meta format, use wamid from entry
+  let id = ''
+  if (Array.isArray(parsed.entry)) {
+    const entry = parsed.entry[0] as Record<string, unknown>
+    const changes = (entry?.changes as Record<string, unknown>[]) || []
+    const value = changes[0]?.value as Record<string, unknown> | undefined
+    const msgs = value?.messages as Record<string, unknown>[] | undefined
+    id = (msgs?.[0]?.id as string) || ''
+  }
+  if (!id) {
+    id = (parsed.id as string)
+      || (parsed.event_id as string)
+      || (parsed.message_id as string)
+      || `evt_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`
+  }
 
   return {
     id,
     type,
     created_at: (parsed.created_at as string) || new Date().toISOString(),
-    data,
+    data: parsed,
   }
 }
 
 function extractInboundMessage(event: StandardWebhookEvent): { from: string; body: string; waName?: string; wamid?: string } | null {
   const d = event.data
 
-  // Case 1: KirimDev message envelope (data.message or root message)
+  // ── Meta entry format (actual KirimDev format) ──
+  if (Array.isArray(d.entry) && d.entry.length > 0) {
+    const entry = d.entry[0] as Record<string, unknown>
+    const changes = (entry?.changes as Record<string, unknown>[] | undefined) || []
+    for (const change of changes) {
+      if (change.field === 'messages' || change.field === 'message') {
+        const value = (change.value as Record<string, unknown> | undefined)
+        if (!value) continue
+        const messages = (value.messages as Array<Record<string, unknown>> | undefined)
+        const contacts = (value.contacts as Array<Record<string, unknown>> | undefined)
+        if (messages?.[0]) {
+          const m = messages[0]
+          const from = (m.from as string) || (m.sender as string) || ''
+          const textBody = (m.text as { body?: string } | undefined)?.body
+            || (m as { body?: string }).body
+            || (m as { text_body?: string }).text_body
+            || (m as { content?: string }).content
+          const wamid = (m.id as string) || (m.wamid as string) || undefined
+          const waName = (contacts?.[0]?.profile as { name?: string } | undefined)?.name
+            || (m as { wa_name?: string }).wa_name
+            || (m as { name?: string }).name
+          if (from && textBody && typeof textBody === 'string') {
+            return { from, body: textBody, waName, wamid }
+          }
+        }
+      }
+    }
+  }
+
+  // ── KirimDev message envelope format ──
   const msg = (d.message as Record<string, unknown> | undefined) || (d as Record<string, unknown>)
   if (msg) {
     const from = (msg.from as string)
       || (msg.phone as string)
       || (msg.sender as string)
       || (msg.contact_phone as string)
-      || (msg.to as string)
+      || ''
 
     const textBody = (msg.text as { body?: string } | undefined)?.body
       || (msg.body as string | undefined)
@@ -76,34 +130,6 @@ function extractInboundMessage(event: StandardWebhookEvent): { from: string; bod
     }
   }
 
-  // Case 2: Meta passthrough (entry -> changes -> value -> messages[0])
-  const metaPayload = (d.payload as Record<string, unknown> | undefined)
-    || (d.meta as Record<string, unknown> | undefined)
-    || (d.entry as unknown[] | undefined)?.[0] as Record<string, unknown> | undefined
-    || d
-
-  if (metaPayload) {
-    const entry = (metaPayload as { entry?: unknown[] }).entry?.[0] as Record<string, unknown> | undefined
-      || (metaPayload as Record<string, unknown>)
-    const changes = (entry?.changes as unknown[] | undefined)?.[0] as Record<string, unknown> | undefined
-      || (entry as Record<string, unknown>)
-    const value = (changes?.value as Record<string, unknown> | undefined)
-      || (changes as Record<string, unknown> | undefined)
-      || (metaPayload as Record<string, unknown>)
-    const messages = (value?.messages as Array<Record<string, unknown>> | undefined)
-    if (messages?.[0]) {
-      const m = messages[0]
-      const from = m.from as string | undefined
-      const body = (m.text as { body?: string } | undefined)?.body
-        || (m.body as string | undefined)
-      const wamid = m.id as string | undefined
-      if (from && body) {
-        const contacts = (value?.contacts as Array<Record<string, unknown>> | undefined)
-        return { from, body, waName: (contacts?.[0]?.profile as { name?: string } | undefined)?.name, wamid }
-      }
-    }
-  }
-
   return null
 }
 
@@ -111,26 +137,31 @@ function extractInboundMessage(event: StandardWebhookEvent): { from: string; bod
 export async function POST(request: NextRequest) {
   try {
     const rawBody = await request.text()
-    const event = parseWebhookPayload(rawBody)
+    const headerEventType = request.headers.get('x-kirim-event') || null
+    const kirimEventId = request.headers.get('x-kirim-event-id') || null
+
+    const event = parseWebhookPayload(rawBody, headerEventType)
+    if (kirimEventId) event.id = kirimEventId
+
     const sb = createAdminClient()
 
-    console.log(`[webhook] Parsed event type: "${event.type}", id: "${event.id}"`)
-
-    // Verify HMAC signature if secret is configured
+    // Verify HMAC — log warning only, don't block (makes debugging easier)
     const secret = process.env.KIRIMDEV_WEBHOOK_SECRET
-    if (secret) {
-      const signature = request.headers.get('x-kirimdev-signature')
-        || request.headers.get('x-kirimdev-signature-256')
-        || request.headers.get('x-kirim-signature-256')
-        || request.headers.get('x-kirim-signature')
-        || request.headers.get('x-signature')
-        || request.headers.get('x-hub-signature-256')
-
-      if (signature) {
+    const signature = request.headers.get('x-kirim-signature')
+      || request.headers.get('x-kirimdev-signature')
+      || request.headers.get('x-kirimdev-signature-256')
+      || request.headers.get('x-kirim-signature-256')
+      || request.headers.get('x-kirim-signature')
+      || request.headers.get('x-signature')
+      || request.headers.get('x-hub-signature-256')
+    if (secret && signature) {
+      try {
         const valid = verifyWebhookSignature(rawBody, signature, secret)
         if (!valid) {
-          console.warn('[webhook] Signature warning for event:', event.id)
+          console.warn('[webhook] ⚠️ HMAC signature mismatch — continuing anyway')
         }
+      } catch (e) {
+        console.warn('[webhook] HMAC verify error (non-fatal):', e instanceof Error ? e.message : e)
       }
     }
 
@@ -144,13 +175,16 @@ export async function POST(request: NextRequest) {
       }, { onConflict: 'id' })
     } catch {}
 
-    // Process inbound message for any event (or message-related type)
+    // Process inbound message for ANY message.* event type
     const inbound = extractInboundMessage(event)
     if (inbound) {
       await handleInboundMessagePayload(event, inbound)
+    } else if (event.type.startsWith('message.') || event.type.startsWith('whatsapp.')) {
+      // Event claims to be a message but we couldn't extract — log for debugging
+      console.log(`[webhook] ⚠️ Message event type "${event.type}" id "${event.id}" but no inbound extracted. Keys: ${JSON.stringify(Object.keys(event.data)).substring(0, 200)}`)
     }
 
-    // Handle customer / setup events
+    // Handle customer / phone events
     switch (event.type) {
       case 'customer.onboarded': {
         const c = (event.data.customer as Record<string, unknown> | undefined) || event.data
@@ -171,7 +205,6 @@ export async function POST(request: NextRequest) {
         }
         break
       }
-
       case 'customer.created':
       case 'customer.updated': {
         const c = (event.data.customer as Record<string, unknown> | undefined) || event.data
@@ -203,8 +236,14 @@ async function handleInboundMessagePayload(
   inbound: { from: string; body: string; waName?: string; wamid?: string }
 ) {
   const sb = createAdminClient()
+  const entry = (event.data.entry as Array<Record<string, unknown>> | undefined)?.[0]
+  const value = ((entry?.changes as Array<Record<string, unknown>> | undefined)?.[0]?.value as Record<string, unknown> | undefined)
+  const metaPhoneId = value?.phone_number_id as string | undefined
+    || (value?.metadata as Record<string, unknown> | undefined)?.phone_number_id as string | undefined
+
   const phoneId = (event.data.phone_number as Record<string, unknown> | undefined)?.phone_number_id as string | undefined
     || (event.data.message as Record<string, unknown> | undefined)?.phone_number_id as string | undefined
+    || metaPhoneId
 
   let customerId: string | undefined
 
@@ -214,7 +253,6 @@ async function handleInboundMessagePayload(
   }
 
   if (!customerId) {
-    // Fallback 1: match active customer in Supabase
     const { data: cust } = await sb.from('customers').select('id, phone_number_id').eq('status', 'active').order('created_at', { ascending: false }).limit(1).maybeSingle()
     if (cust) {
       customerId = cust.id
@@ -226,6 +264,8 @@ async function handleInboundMessagePayload(
 
   if (customerId) {
     await processInboundMessage(customerId, inbound, phoneId)
+  } else {
+    console.log(`[webhook] No customerId found for inbound from ${inbound.from} (phoneId: ${phoneId}) — cannot process`)
   }
 }
 
@@ -239,7 +279,7 @@ async function processInboundMessage(
   const businessName = custRow?.name || 'Bisnis Kami'
   const effectivePhoneId = phoneNumberId || custRow?.phone_number_id
 
-  // 1. Log inbound message immediately to message_logs
+  // 1. Log inbound message
   await insertMessageLog({
     id: inbound.wamid || `in_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
     customer_id: customerId,
@@ -253,9 +293,12 @@ async function processInboundMessage(
     content: inbound.body,
   })
 
-  console.log(`[webhook] Inbound message logged for contact ${inbound.from}: "${inbound.body}"`)
+  console.log(`[webhook] Inbound logged: customer=${customerId} contact=${inbound.from} msg="${inbound.body.substring(0, 60)}"`)
 
-  if (!botCfg || !botCfg.enabled) return
+  if (!botCfg || !botCfg.enabled) {
+    console.log(`[webhook] Bot disabled or not configured for customer ${customerId} — no auto-reply`)
+    return
+  }
 
   const parseJson = (val: unknown, fallback: unknown) => {
     if (!val) return fallback
@@ -294,7 +337,7 @@ async function processInboundMessage(
     await upsertLead({
       customer_id: customerId,
       contact_phone: inbound.from,
-      contact_name: inbound.waName || dataObj['name'] || dataObj['contact_name'],
+      contact_name: inbound.waName || dataObj['name'] || dataObj['contact_name'] || undefined,
       package: dataObj['_package'],
       status: result.leadData.is_complete ? (result.handoverToAdmin ? 'Contacted' : 'Inquiry') : 'Inquiry',
       data: dataObj,
@@ -303,12 +346,12 @@ async function processInboundMessage(
     })
   }
 
-  // 5. Auto-reply if enabled
+  // 5. Auto-reply
   if (result.autoReply && result.reply && effectivePhoneId) {
     await sendWhatsAppReply(effectivePhoneId, inbound.from, result.reply, customerId)
   }
 
-  // 6. Mark message as read via KirimDev SDK
+  // 6. Mark as read
   if (inbound.wamid && effectivePhoneId) {
     try {
       const phone = kirim.phoneNumbers(effectivePhoneId)
@@ -342,7 +385,7 @@ async function sendWhatsAppReply(
     )
     const data = await res.json()
     if (!res.ok) {
-      console.error('[webhook] Failed to send reply:', data.error)
+      console.error('[webhook] Failed to send reply:', JSON.stringify(data).substring(0, 500))
     } else {
       await insertMessageLog({
         id: data.data?.id || `msg_${Date.now()}`,
@@ -362,7 +405,7 @@ async function sendWhatsAppReply(
   }
 }
 
-// GET for verification endpoint
+// GET health check
 export async function GET() {
-  return NextResponse.json({ status: 'webhook alive', version: '2.2.0', platform: 'Supabase' })
+  return NextResponse.json({ status: 'webhook alive', version: '2.3.1', platform: 'Supabase' })
 }
