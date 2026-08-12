@@ -98,11 +98,13 @@ export default function CustomerDetailPage({
           phone_number_id: inputPhoneId.trim(),
         }),
       })
-      if (!res.ok) throw new Error('Failed to update phone number')
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Failed to update phone number')
+      setCustomer(data.data)
       setEditingPhone(false)
-      fetchCustomer()
+      alert('Nomor WhatsApp berhasil diperbarui!')
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Error updating phone')
+      alert(err instanceof Error ? err.message : 'Failed to update phone number')
     } finally {
       setUpdatingPhone(false)
     }
@@ -110,18 +112,20 @@ export default function CustomerDetailPage({
 
   const generateSetupLink = async () => {
     setGeneratingLink(true)
+    setError(null)
     try {
       const res = await fetch(`/api/customers/${id}/setup-link`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ expires_in_hours: 168 }),
       })
       const data = await res.json()
-      if (!res.ok) throw new Error(data.error || 'Failed to generate link')
+      if (!res.ok) throw new Error(data.error || 'Failed to generate setup link')
       setLastSetupUrl(data.data.setup_url)
       fetchLinks()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to generate link')
+      const msg = err instanceof Error ? err.message : 'Failed to generate setup link'
+      alert(msg)
+      setError(msg)
     } finally {
       setGeneratingLink(false)
     }
@@ -179,6 +183,8 @@ export default function CustomerDetailPage({
       </div>
     )
   }
+
+  const isMetaConnected = Boolean(customer.phone_number_id && (customer.wa_account_status === 'connected' || customer.status === 'active'))
 
   return (
     <div className="max-w-4xl space-y-6">
@@ -259,7 +265,9 @@ export default function CustomerDetailPage({
             </div>
             <div className="flex justify-between py-1 border-b border-zinc-800/60">
               <span className="text-zinc-400">Status Koneksi</span>
-              <span className="font-semibold text-white capitalize">{customer.wa_account_status || 'Active'}</span>
+              <span className={`font-semibold capitalize ${isMetaConnected ? 'text-emerald-400' : 'text-amber-400'}`}>
+                {isMetaConnected ? 'Connected (Meta Verified) 🟢' : 'Belum Konek Meta (Embedded Signup Required) ⚠️'}
+              </span>
             </div>
           </div>
         )}
@@ -304,72 +312,90 @@ export default function CustomerDetailPage({
         )}
 
         {links.length === 0 ? (
-          <p className="text-xs text-zinc-500">Belum ada setup link aktif.</p>
+          <p className="text-xs text-zinc-500 py-2">Belum ada setup link aktif.</p>
         ) : (
           <div className="space-y-2">
             {links.map((link) => (
-              <div key={link.id} className="flex items-center justify-between bg-zinc-950/60 border border-zinc-800 rounded-xl p-3 text-xs">
+              <div
+                key={link.id}
+                className="flex items-center justify-between bg-zinc-950/60 p-3 border border-zinc-800/80 rounded-xl text-xs"
+              >
                 <div>
-                  <div className="font-mono text-[11px] text-white">{link.id}</div>
-                  <div className="text-zinc-500 text-[10px] mt-0.5">
-                    {link.status} • {link.token_last4 ? `...${link.token_last4}` : ''} • Dibuat: {new Date(link.created_at).toLocaleDateString('id-ID')}
-                  </div>
+                  <span className="font-mono text-zinc-300">ID: {link.id}</span>
+                  <span className="text-zinc-500 ml-2">Token: ...{link.token_last4}</span>
                 </div>
-                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
-                  link.status === 'active' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' :
-                  link.status === 'consumed' ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30' :
-                  'bg-zinc-500/20 text-zinc-400'
-                }`}>
-                  {link.status}
-                </span>
+                <div className="flex items-center gap-2">
+                  <span
+                    className={`px-2 py-0.5 rounded text-[10px] uppercase font-bold ${
+                      link.status === 'active'
+                        ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                        : 'bg-zinc-800 text-zinc-400'
+                    }`}
+                  >
+                    {link.status}
+                  </span>
+                  {link.setup_url && (
+                    <button
+                      onClick={() => {
+                        navigator.clipboard.writeText(link.setup_url!)
+                        alert('Copied setup URL!')
+                      }}
+                      className="text-zinc-400 hover:text-white underline text-[11px]"
+                    >
+                      Copy Link
+                    </button>
+                  )}
+                </div>
               </div>
             ))}
           </div>
         )}
       </div>
 
-      {/* Send test message */}
-      {customer.phone_number_id && (
-        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
-          <h2 className="font-bold text-white text-base mb-4">Uji Coba Kirim Pesan Outbound</h2>
-          <div className="space-y-4">
+      {/* Manual Outbound Test */}
+      <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
+        <h2 className="font-bold text-white text-base mb-1">Uji Coba Kirim Pesan Outbound</h2>
+        <p className="text-xs text-zinc-400 mb-4">Kirim pesan WhatsApp langsung untuk mengetes integrasi KirimDev SDK</p>
+
+        <div className="space-y-3">
+          <div>
+            <label className="block text-xs text-zinc-400 mb-1">Nomor WA Tujuan (E.164 format, misal +628123456789)</label>
             <input
               type="text"
+              placeholder="+628123456789"
               value={sendTo}
               onChange={(e) => setSendTo(e.target.value)}
-              placeholder="Tujuan WhatsApp: +628xxxxx"
-              className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-xs text-white placeholder-zinc-500"
+              className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-white font-mono"
             />
+          </div>
+          <div>
+            <label className="block text-xs text-zinc-400 mb-1">Pesan Outbound</label>
             <textarea
+              rows={2}
+              placeholder="Halo dari Chatin!"
               value={sendText}
               onChange={(e) => setSendText(e.target.value)}
-              placeholder="Isi pesan uji coba..."
-              rows={3}
-              className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-xs text-white placeholder-zinc-500"
+              className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-white"
             />
-            <button
-              onClick={sendMessage}
-              disabled={sending || !sendTo || !sendText}
-              className="w-full bg-emerald-500 text-zinc-950 font-bold rounded-xl py-3 text-xs hover:bg-emerald-400 transition disabled:opacity-50"
-            >
-              {sending ? 'Mengirim...' : 'Kirim Pesan Uji Coba'}
-            </button>
-            {sendResult && (
-              <div className="text-xs p-3 rounded-xl bg-zinc-950 border border-zinc-800 font-mono">
-                {sendResult}
-              </div>
-            )}
           </div>
+          <button
+            onClick={sendMessage}
+            disabled={sending || !sendTo || !sendText}
+            className="bg-emerald-500 text-zinc-950 font-bold px-4 py-2 rounded-xl text-xs hover:bg-emerald-400 transition disabled:opacity-50"
+          >
+            {sending ? 'Mengirim...' : 'Kirim Pesan Uji Coba'}
+          </button>
+          {sendResult && <div className="text-xs font-mono mt-2">{sendResult}</div>}
         </div>
-      )}
+      </div>
 
-      {/* Danger zone */}
-      <div className="bg-red-500/10 border border-red-500/20 rounded-2xl p-6">
-        <h2 className="font-bold text-red-400 text-sm mb-2">Danger Zone</h2>
+      {/* Danger Zone */}
+      <div className="bg-red-500/5 border border-red-500/20 rounded-2xl p-6">
+        <h2 className="font-bold text-red-400 text-base mb-1">Danger Zone</h2>
         <p className="text-xs text-zinc-400 mb-4">Arsipkan customer ini jika sudah tidak aktif lagi</p>
         <button
           onClick={archiveCustomer}
-          className="bg-red-600 hover:bg-red-500 text-white px-4 py-2 rounded-xl text-xs font-semibold transition"
+          className="bg-red-500 hover:bg-red-600 text-white text-xs font-bold px-4 py-2 rounded-xl transition"
         >
           Arsipkan Customer
         </button>

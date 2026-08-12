@@ -15,6 +15,21 @@ export function getKirim(): Kirim {
   return _kirimInstance
 }
 
+// Generate valid 26-char Crockford Base32 KirimDev customer ID matching /^cus_[0-9A-HJKMNP-TV-Z]{26}$/
+export function generateKirimDevCustomerId(): string {
+  const chars = '0123456789ABCDEFGHJKMNPQRSTVWXYZ'
+  let result = 'cus_'
+  for (let i = 0; i < 26; i++) {
+    result += chars.charAt(Math.floor(Math.random() * chars.length))
+  }
+  return result
+}
+
+// Validate if customer ID matches KirimDev ULID pattern
+export function isValidKirimDevCustomerId(id: string): boolean {
+  return /^cus_[0-9A-HJKMNP-TV-Z]{26}$/.test(id)
+}
+
 // Proxy export for backward compatibility so kirim.phoneNumbers(...) works everywhere
 export const kirim = new Proxy({} as Kirim, {
   get(_target, prop) {

@@ -8,15 +8,34 @@ export default async function DashboardPage() {
   ])
 
   const myBusiness = customers[0]
+  const hasPhone = Boolean(myBusiness?.phone_number)
+  const hasPhoneId = Boolean(myBusiness?.phone_number_id)
+  const isFullyConnected = hasPhone && hasPhoneId
+
+  const wabaStatusText = !hasPhone
+    ? 'Belum Tersambung ⏳'
+    : !hasPhoneId
+    ? 'Butuh Connect Meta ⚠️'
+    : 'Terhubung Meta 🟢'
+
+  const wabaSubtext = !hasPhone
+    ? 'Nomor WA belum diisi'
+    : !hasPhoneId
+    ? `${myBusiness?.phone_number} (Belum Embedded Signup)`
+    : `${myBusiness?.phone_number} (Official Meta WABA)`
+
+  const wabaCardColor = isFullyConnected
+    ? 'from-emerald-500/20 to-teal-500/5 text-emerald-400 border-emerald-500/30'
+    : 'from-amber-500/20 to-amber-500/5 text-amber-400 border-amber-500/30'
 
   const mainStats = [
     {
       label: 'Status WhatsApp WABA',
-      value: myBusiness?.phone_number ? 'Terhubung 🟢' : 'Pending ⏳',
-      total: myBusiness?.phone_number || 'Belum tersambung',
-      color: 'from-emerald-500/20 to-teal-500/5 text-emerald-400 border-emerald-500/30',
+      value: wabaStatusText,
+      total: wabaSubtext,
+      color: wabaCardColor,
       icon: (
-        <svg className="w-5 h-5 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <svg className={`w-5 h-5 ${isFullyConnected ? 'text-emerald-400' : 'text-amber-400'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z" />
         </svg>
       ),
@@ -52,8 +71,10 @@ export default async function DashboardPage() {
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-gradient-to-r from-zinc-900 via-zinc-900 to-zinc-900/60 border border-zinc-800/80 rounded-2xl p-6 relative overflow-hidden shadow-xl">
         <div className="space-y-1">
           <div className="flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-            <span className="text-xs font-semibold text-emerald-400 uppercase tracking-wider">WhatsApp Business Engine Active</span>
+            <span className={`w-2 h-2 rounded-full ${isFullyConnected ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400 animate-bounce'}`}></span>
+            <span className={`text-xs font-semibold uppercase tracking-wider ${isFullyConnected ? 'text-emerald-400' : 'text-amber-400'}`}>
+              {isFullyConnected ? 'WhatsApp Business Engine Active' : 'Koneksi Meta WABA Memerlukan Setup'}
+            </span>
           </div>
           <h1 className="text-2xl font-bold text-white tracking-tight">
             {myBusiness ? `Dashboard ${myBusiness.name}` : 'Dashboard WhatsApp Business'}
@@ -64,6 +85,14 @@ export default async function DashboardPage() {
         </div>
 
         <div className="flex items-center gap-3 shrink-0">
+          {!hasPhoneId && myBusiness && (
+            <Link
+              href={`/dashboard/customers/${myBusiness.id}`}
+              className="flex items-center gap-2 bg-amber-500 hover:bg-amber-400 text-zinc-950 font-bold px-4 py-2.5 rounded-xl text-xs transition shadow-lg shadow-amber-500/20"
+            >
+              <span>🔗 Connect Meta WABA</span>
+            </Link>
+          )}
           <Link
             href="/dashboard/inbox"
             className="flex items-center gap-2 bg-emerald-500 text-zinc-950 font-bold px-4 py-2.5 rounded-xl text-xs hover:bg-emerald-400 transition shadow-lg shadow-emerald-500/20"

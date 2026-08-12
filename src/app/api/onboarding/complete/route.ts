@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { upsertCustomer, upsertBotConfig, setOnboardedStatus, upsertSubscription } from '@/lib/db'
+import { kirim, generateKirimDevCustomerId } from '@/lib/kirimdev'
 import { INDUSTRY_TEMPLATES } from '@/lib/industry-templates'
 import { NextResponse } from 'next/server'
 
@@ -19,11 +20,28 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Nama bisnis wajib diisi' }, { status: 400 })
     }
 
-    const customerId = `cus_${user.id.slice(0, 8)}_${Math.random().toString(36).slice(2, 6)}`
+    let customerId = generateKirimDevCustomerId()
+
+    // Try to create customer in KirimDev API first
+    const apiKey = process.env.KIRIMDEV_API_KEY
+    if (apiKey && apiKey !== 'kdv_xxx') {
+      try {
+        const kirimCustomer = await kirim.customers.create({
+          name: businessName.trim(),
+          email: email || user.email || undefined,
+        })
+        if (kirimCustomer?.id) {
+          customerId = kirimCustomer.id
+        }
+      } catch (e) {
+        console.warn('[onboarding] KirimDev API customer creation skipped:', e)
+      }
+    }
+
     const presetKey = (industryPreset || 'generic') as keyof typeof INDUSTRY_TEMPLATES
     const preset = INDUSTRY_TEMPLATES[presetKey] || INDUSTRY_TEMPLATES.generic
 
-    // 1. Create Customer
+    // 1. Create Customer in local DB
     await upsertCustomer({
       id: customerId,
       name: businessName.trim(),
