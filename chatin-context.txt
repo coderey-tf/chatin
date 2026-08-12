@@ -1,19 +1,77 @@
-Project: Chatin — Multi-tenant WhatsApp Business API Dashboard                       
+Project: Chatin — Multi-tenant WhatsApp Business API Dashboard
 GitHub: https://github.com/coderey-tf/chatin
-Live: https://chatin.coderey.dev                                      
+Live: https://chatin.coderey.dev
 Stack: Next.js 16 + React 19 + TypeScript 5 + Supabase (PostgreSQL + Auth + Realtime) + KirimDev SDK (official Meta BSP)
-VPS: /var/www/chatin (PM2 chatin, port 3004)                          
+VPS: /var/www/chatin (PM2 chatin, port 3004)
 CI/CD: GitHub Actions (.github/workflows/deploy.yml) on push main via SSH & PM2
-Core architecture:                                                                                       
-- KirimDev is official Meta BSP, 10 WA accounts, 1M msgs/mo, Rp199k/mo                                   
-- Meta fees pass-through (billed to each client's WABA, not to us)                
-- Chatin is platform owner, each client = customer with their own WABA                                 
-- Chatbot: generic, template-driven, 5 presets (wedding_decor, jasa_rental, klinik, toko_online, generic)                        
-- DB: Supabase PostgreSQL with native JSONB & RLS policies (`profiles` with `is_onboarded` flag, `customers`, `setup_links`, `bot_configs`, `leads`, `message_logs`, `webhook_events`, `subscriptions`, `invoices`)
-- Auth & Onboarding: Supabase Auth + 3-step Onboarding Wizard (`/onboarding` & `/api/onboarding/complete`) auto-redirecting new users until `is_onboarded = true`.
-- Layout: 100% Client-Focused Sidebar Layout (`Sidebar.tsx`) with direct 1-click access to `/dashboard/bot`, `/dashboard/leads`, `/dashboard/inbox`, and `/dashboard/billing`.
-4-step funnel: greeting → extract (keyword/date/text/location/select) → pricelist + handover → followup                          
-Main API: POST /api/chat (public), Webhook: POST /api/webhooks/kirimdev (inbound → partial lead save → engine → auto-reply → mark-as-read)
-Dashboard: `/dashboard/bot` (bot config), `/dashboard/leads` (leads management), `/dashboard/inbox` (live chat thread), `/dashboard/billing` (subscriptions)
-All DB funcs in `src/lib/db.ts`, engine in `src/lib/chat-engine.ts`, parser in `src/lib/lead-parser.ts`
+
+## Architecture
+- KirimDev is official Meta BSP, 10 WA accounts, 1M msgs/mo, Rp199k/mo
+- Meta fees pass-through (billed to each client's WABA, not to us)
+- Chatin is platform owner, each client = customer with their own WABA
+- Chatbot: generic, template-driven, 5 presets (wedding_decor, jasa_rental, klinik, toko_online, generic)
+- DB: Supabase PostgreSQL with native JSONB & RLS
+  Tables: profiles, customers, setup_links, bot_configs, leads, message_logs, webhook_events, subscriptions, invoices
+- Auth: Supabase Auth (Google OAuth + Email/Password) + 3-step Onboarding Wizard
+- Layout: Sidebar layout (Sidebar.tsx) with direct routes /dashboard/bot, /dashboard/leads, /dashboard/inbox, /dashboard/billing
+
+## Webhook Flow (v2.3.1 — CRITICAL)
+POST /api/webhooks/kirimdev receives Meta Cloud API events from KirimDev.
+
+Real payload format from KirimDev:
+```
+Headers:
+  x-kirim-event: message.received          <-- event type source of truth
+  x-kirim-event-id: wamid.HBgNNjI...      <-- message ID
+  x-kirim-signature: t=TIMESTAMP,v1=HEX   <-- HMAC signature (t=v1 format, same as Slack)
+
+Body: Meta Cloud API entry format
+{
+  "entry": [{
+    "id": "2259525001457664",
+    "changes": [{
+      "field": "messages",
+      "value": {
+        "contacts": [{"wa_id": "6285156266871", "profile": {"name": "Reynaldi"}}],
+        "messages": [{"id": "wamid...", "from": "6285156266871", "text": {"body": "tess"}}],
+        "metadata": {"phone_number_id": "1265311166666629"}
+      }
+    }]
+  }],
+  "kirim": {...}
+}
+```
+
+Webhook processing:
+1. Read x-kirim-event header → set event.type
+2. Extract inbound message from entry[0].changes[0].value.messages[0]
+3. Find customer by phone_number_id (from metadata) OR fallback to active customer
+4. Log inbound to message_logs (enables Supabase Realtime → Live Inbox)
+5. If bot_config enabled → run chat engine → auto-reply via KirimDev API
+6. Save/update lead to leads table
+7. Mark message as read via KirimDev SDK
+
+HMAC verification: wrapped in try/catch (non-fatal on failure, logs warning only)
+
+## Chat Engine Flow
+4-step funnel: greeting → extract (keyword/date/text/location/select) → pricelist + handover → followup
+Main API: POST /api/chat (public), Webhook: POST /api/webhooks/kirimdev
+Dashboard: /dashboard/bot (bot config), /dashboard/leads (leads), /dashboard/inbox (live), /dashboard/billing (subs)
+
+## Key Files
+- src/lib/db.ts — All Supabase DB helpers (async, uses createAdminClient)
+- src/lib/chat-engine.ts — Chat engine + INDUSTRY_TEMPLATES (single source of truth)
+- src/lib/lead-parser.ts — Field extraction (regex, keywords, dates, names)
+- src/lib/webhook-verify.ts — HMAC webhook signature verification (t=v1 format)
+- src/lib/kirimdev.ts — KirimDev SDK lazy initialization
+- src/lib/supabase/server.ts — Server-side Supabase client (@supabase/ssr)
+- src/lib/supabase/client.ts — Browser-side Supabase client
+- src/lib/supabase/admin.ts — Service-role admin client (bypasses RLS)
+- src/app/api/webhooks/kirimdev/route.ts — Webhook receiver + auto-reply (v2.3.1)
+- src/app/api/chat/route.ts — Public chat endpoint
+- src/app/api/inbox/route.ts — Inbox contacts API
+- src/app/api/inbox/[phone]/route.ts — Thread + 24h reply API
+- src/app/dashboard/inbox/page.tsx — Live Conversation Inbox (Supabase Realtime WS)
+- src/app/dashboard/billing/page.tsx — Subscription & billing page
+
 Read AGENTS.md for full technical docs

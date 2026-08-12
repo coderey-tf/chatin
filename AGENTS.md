@@ -299,3 +299,66 @@ Whenever code is pushed to branch `main`, GitHub Actions automatically:
 5. **Agnostic Payment Integration**: Webhook `/api/webhooks/payment` accepts webhook events from any gateway (Xendit, Midtrans, Mayar, Tripay) without lock-in.
 
 6. **Automated CI/CD Deployment**: Push to `main` automatically builds and deploys to VPS (`/var/www/chatin`) via SSH and PM2 without manual SSH sessions.
+
+---
+
+## Webhook Handling (v2.3.1 — Critical Detail)
+
+`POST /api/webhooks/kirimdev` receives Meta Cloud API events forwarded by KirimDev.
+
+### Real Payload Format (from production logs)
+
+**Headers** (source of truth for event type):
+```
+x-kirim-event: message.received
+x-kirim-event-id: wamid.HBgNNjI4NTE1NjI2Njg3MRUCABIYFjNFQjA1MzYwM0EwQkQ3QjczQjQ5MTMA
+x-kirim-signature: t=1786544906,v1=HEX  (t=v1 format, same as Slack/Stripe)
+x-kirim-source: meta
+user-agent: Kirim-Webhook/1.0
+```
+
+**Body** (Meta Cloud API entry format):
+```json
+{
+  "entry": [{
+    "id": "2259525001457664",
+    "changes": [{
+      "field": "messages",
+      "value": {
+        "contacts": [{"wa_id": "6285156266871", "profile": {"name": "Reynaldi"}}],
+        "messages": [{"id": "wamid...", "from": "6285156266871", "text": {"body": "tess"}}],
+        "metadata": {"phone_number_id": "1265311166666629"}
+      }
+    }]
+  }],
+  "kirim": {"delivery_id": "wbd_..."}
+}
+```
+
+### Processing Flow
+
+```
+Webhook POST → parseHeader(x-kirim-event) + parseBody(entry[0].changes[0])
+  → extractInboundMessage(from, body, waName, wamid)
+  → find customer by phone_number_id OR fallback to active customer
+  → insertMessageLog (→ Supabase Realtime → Live Inbox)
+  → if bot enabled: handleChat() → auto-reply via KirimDev API
+  → upsertLead() + markAsRead()
+```
+
+### Key Implementation Details
+
+- **Event type**: Read from x-kirim-event header (not body) — only reliable source
+- **Message ID (wamid)**: From x-kirim-event-id header OR entry[0].changes[0].value.messages[0].id
+- **Phone number ID**: From entry[0].changes[0].value.metadata.phone_number_id
+- **HMAC**: Format t=TIMESTAMP,v1=HEX. Wrapped in try/catch, non-fatal (logs warning only)
+- **File**: src/lib/webhook-verify.ts handles t=v1 format with multiple candidate hashes
+
+### Known Pitfalls (Fixed in v2.3.1)
+
+| Issue | Fix |
+|-------|-----|
+| All webhook_events had type: "unknown" | Read x-kirim-event header in parseWebhookPayload(rawBody, headerEventType) |
+| RangeError: Input buffers must have same byte length | HMAC wrapped in try/catch, non-fatal |
+| payload: {} empty in webhook_events | Store full entry body as payload |
+| Live Inbox not showing | Ensure Supabase Realtime enabled for message_logs table |
