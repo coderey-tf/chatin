@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, use } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 
@@ -37,8 +37,9 @@ interface SetupLink {
 export default function CustomerDetailPage({
   params,
 }: {
-  params: { id: string }
+  params: Promise<{ id: string }>
 }) {
+  const { id } = use(params)
   const router = useRouter()
   const [customer, setCustomer] = useState<CustomerDetail | null>(null)
   const [links, setLinks] = useState<SetupLink[]>([])
@@ -60,7 +61,7 @@ export default function CustomerDetailPage({
 
   const fetchCustomer = async () => {
     try {
-      const res = await fetch(`/api/customers/${params.id}`)
+      const res = await fetch(`/api/customers/${id}`)
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Failed to fetch')
       setCustomer(data.data)
@@ -73,7 +74,7 @@ export default function CustomerDetailPage({
 
   const fetchLinks = async () => {
     try {
-      const res = await fetch(`/api/customers/${params.id}/setup-link`)
+      const res = await fetch(`/api/customers/${id}/setup-link`)
       if (res.ok) {
         const data = await res.json()
         setLinks(Array.isArray(data.data) ? data.data : (data.data?.data || []))
@@ -86,7 +87,7 @@ export default function CustomerDetailPage({
   const generateSetupLink = async () => {
     setGeneratingLink(true)
     try {
-      const res = await fetch(`/api/customers/${params.id}/setup-link`, {
+      const res = await fetch(`/api/customers/${id}/setup-link`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ expires_in_hours: 168 }),
@@ -105,7 +106,7 @@ export default function CustomerDetailPage({
   const archiveCustomer = async () => {
     if (!confirm(`Archive customer ${customer?.name}?`)) return
     try {
-      const res = await fetch(`/api/customers/${params.id}`, { method: 'DELETE' })
+      const res = await fetch(`/api/customers/${id}`, { method: 'DELETE' })
       if (!res.ok) throw new Error('Failed to archive')
       router.push('/dashboard/customers')
     } catch (err) {
@@ -122,7 +123,7 @@ export default function CustomerDetailPage({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          customer_id: params.id,
+          customer_id: id,
           to: sendTo,
           type: 'text',
           text: { body: sendText },
@@ -170,9 +171,9 @@ export default function CustomerDetailPage({
             <p className="text-zinc-400">{customer.email || 'No email'} • {customer.id}</p>
           </div>
           <div className="flex items-center gap-2">
-            <Link href={`/dashboard/customers/${params.id}/bot`}
+            <Link href={`/dashboard/customers/${id}/bot`}
               className="text-sm bg-blue-500/20 text-blue-400 px-3 py-1.5 rounded-lg hover:bg-blue-500/30 transition">🤖 Bot Settings</Link>
-            <Link href={`/dashboard/customers/${params.id}/leads`}
+            <Link href={`/dashboard/customers/${id}/leads`}
               className="text-sm bg-purple-500/20 text-purple-400 px-3 py-1.5 rounded-lg hover:bg-purple-500/30 transition">📊 Leads</Link>
           </div>
         </div>

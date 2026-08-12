@@ -14,7 +14,7 @@ export async function GET(
     const customer = await kirim.customers.retrieve(id)
 
     // Sync to local DB
-    upsertCustomer({
+    await upsertCustomer({
       id: customer.id,
       name: customer.name,
       email: customer.email || null,
@@ -25,7 +25,7 @@ export async function GET(
     })
 
     // Get local data (may have phone_number_id from webhook)
-    const local = getCustomer(id)
+    const local = await getCustomer(id)
 
     return NextResponse.json({
       data: {
@@ -55,9 +55,9 @@ export async function DELETE(
     await kirim.customers.archive(id)
 
     // Update local DB
-    const local = getCustomer(id)
+    const local = await getCustomer(id)
     if (local) {
-      upsertCustomer({
+      await upsertCustomer({
         id: local.id,
         name: local.name,
         email: local.email,

@@ -8,7 +8,7 @@ export async function GET(
 ) {
   try {
     const { id } = await params
-    const rows = listLeads(id)
+    const rows = await listLeads(id)
     const leads = rows.map(parseLead)
     return NextResponse.json({ data: leads, count: leads.length })
   } catch (error) {
@@ -43,7 +43,7 @@ export async function POST(
       if (body[key] && typeof body[key] === 'string') data[key] = body[key]
     }
 
-    const leadId = upsertLead({
+    const leadId = await upsertLead({
       customer_id: id,
       contact_phone: body.contact_phone,
       contact_name: body.contact_name || body.name,

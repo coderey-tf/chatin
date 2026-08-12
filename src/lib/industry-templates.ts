@@ -4,17 +4,9 @@
  * Full field configs are in chat-engine.ts INDUSTRY_TEMPLATES.
  */
 
-export interface BotField {
-  key: string
-  label: string
-  emoji: string
-  type: 'text' | 'date' | 'select' | 'keyword' | 'location'
-  required: boolean
-  options?: string[]
-  keywords?: Record<string, string[]>
-  placeholder?: string
-  default_value?: string
-}
+import type { BotField } from '@/lib/db'
+
+export type { BotField }
 
 export interface IndustryPreset {
   key: string

@@ -1,19 +1,8 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, use } from 'react'
 import Link from 'next/link'
-
-interface BotField {
-  key: string
-  label: string
-  emoji: string
-  type: string
-  required: boolean
-  options?: string[]
-  keywords?: Record<string, string[]>
-  placeholder?: string
-  default_value?: string
-}
+import { INDUSTRY_TEMPLATES, type BotField } from '@/lib/industry-templates'
 
 interface BotConfigData {
   industry_preset: string
@@ -23,58 +12,10 @@ interface BotConfigData {
   pricelist_links: Record<string, string>
 }
 
-interface TemplateDef {
-  key: string
-  name: string
-  icon: string
-  description: string
-  fields: BotField[]
-}
+const TEMPLATES = INDUSTRY_TEMPLATES
 
-const TEMPLATES: Record<string, TemplateDef> = {
-  wedding_decor: { key: 'wedding_decor', name: 'Wedding & Decoration', icon: '💒', description: 'Dekorasi pernikahan, lamaran, ulang tahun',
-    fields: [
-      { key: 'name', label: 'Nama', emoji: '👤', type: 'text', required: true },
-      { key: 'event_date', label: 'Tanggal Acara', emoji: '📅', type: 'date', required: false, default_value: 'Belum pasti' },
-      { key: 'event_type', label: 'Jenis Acara', emoji: '💒', type: 'keyword', required: true,
-        keywords: { Wedding: ['nikah','wedding','resepsi','akad','menikah','pernikahan','unduh mantu'],
-                    Engagement: ['lamaran','engagement','tunangan','melamar','siraman'] } },
-      { key: 'venue_type', label: 'Lokasi Acara', emoji: '🏛️', type: 'keyword', required: true,
-        keywords: { Gedung: ['gedung','hotel','hall','ballroom','masjid','resto','restaurant','convention','aula','villa'],
-                    Rumah: ['rumah','halaman','garasi','home','kediaman','outdoor','taman','pool','rooftop'] } },
-    ] },
-  jasa_rental: { key: 'jasa_rental', name: 'Jasa Rental', icon: '🚗', description: 'Sewa mobil, kamera, alat, dll',
-    fields: [
-      { key: 'name', label: 'Nama', emoji: '👤', type: 'text', required: true },
-      { key: 'item_type', label: 'Jenis Barang', emoji: '🚗', type: 'keyword', required: true,
-        keywords: { Mobil: ['mobil','car','toyota','honda','avanza','innova'], Kamera: ['kamera','camera','dslr','mirrorless','gopro','drone'] } },
-      { key: 'rental_date', label: 'Tanggal Sewa', emoji: '📅', type: 'date', required: true },
-      { key: 'location', label: 'Lokasi', emoji: '📍', type: 'location', required: false },
-    ] },
-  klinik: { key: 'klinik', name: 'Klinik / Dokter', icon: '💊', description: 'Booking jadwal periksa, treatment kecantikan',
-    fields: [
-      { key: 'name', label: 'Nama', emoji: '👤', type: 'text', required: true },
-      { key: 'service', label: 'Jenis Layanan', emoji: '💊', type: 'keyword', required: true,
-        keywords: { Umum: ['umum','periksa','dokter umum','capek','demam'], Gigi: ['gigi','tambal','cabut gigi','scaling'],
-                    Kecantikan: ['kecantikan','facial','botox','laser','acne'] } },
-      { key: 'visit_date', label: 'Jadwal Periksa', emoji: '📅', type: 'date', required: true },
-    ] },
-  toko_online: { key: 'toko_online', name: 'Toko Online', icon: '🛍️', description: 'Order barang, tanya stok, tanya harga',
-    fields: [
-      { key: 'name', label: 'Nama', emoji: '👤', type: 'text', required: true },
-      { key: 'item_wanted', label: 'Barang yang Dicari', emoji: '🛍️', type: 'text', required: true },
-      { key: 'location', label: 'Kota', emoji: '📍', type: 'location', required: false },
-    ] },
-  generic: { key: 'generic', name: 'Bisnis Umum', icon: '🏢', description: 'Field kosong, user isi sendiri',
-    fields: [
-      { key: 'name', label: 'Nama', emoji: '👤', type: 'text', required: true },
-      { key: 'inquiry', label: 'Pertanyaan', emoji: '💬', type: 'text', required: true },
-      { key: 'date', label: 'Tanggal', emoji: '📅', type: 'date', required: false },
-      { key: 'location', label: 'Lokasi', emoji: '📍', type: 'location', required: false },
-    ] },
-}
-
-export default function BotSettingsPage({ params }: { params: { id: string } }) {
+export default function BotSettingsPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = use(params)
   const [cfg, setCfg] = useState<BotConfigData | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -94,7 +35,7 @@ export default function BotSettingsPage({ params }: { params: { id: string } }) 
 
   const fetchConfig = useCallback(async () => {
     try {
-      const res = await fetch(`/api/customers/${params.id}/chat-settings`)
+      const res = await fetch(`/api/customers/${id}/chat-settings`)
       const data = await res.json()
       if (data.data) {
         const d = data.data
@@ -107,7 +48,7 @@ export default function BotSettingsPage({ params }: { params: { id: string } }) 
         setPricelistLinks(d.pricelist_links || {})
       }
     } catch { } finally { setLoading(false) }
-  }, [params.id])
+  }, [id])
 
   useEffect(() => { fetchConfig() }, [fetchConfig])
 
@@ -123,7 +64,7 @@ export default function BotSettingsPage({ params }: { params: { id: string } }) 
     setSaving(true)
     setMsg(null)
     try {
-      const res = await fetch(`/api/customers/${params.id}/chat-settings`, {
+      const res = await fetch(`/api/customers/${id}/chat-settings`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -157,7 +98,7 @@ export default function BotSettingsPage({ params }: { params: { id: string } }) 
     <div className="max-w-5xl">
       {/* Header */}
       <div className="mb-8">
-        <Link href={`/dashboard/customers/${params.id}`} className="text-zinc-400 hover:text-white text-sm mb-3 inline-block">← Back to customer</Link>
+        <Link href={`/dashboard/customers/${id}`} className="text-zinc-400 hover:text-white text-sm mb-3 inline-block">← Back to customer</Link>
         <h1 className="text-2xl font-bold mb-1">🤖 Bot Settings</h1>
         <p className="text-zinc-500">Konfigurasi chatbot otomatis: field yang dikumpulkan, greeting, pricelist</p>
       </div>
@@ -286,7 +227,7 @@ export default function BotSettingsPage({ params }: { params: { id: string } }) 
         <div className="bg-zinc-800 rounded-lg p-4 font-mono text-xs text-green-400 mb-3">
           POST https://chatin.coderey.dev/api/chat{'\n'}
           {'  '}Content-Type: application/json{'\n'}
-          {'  '}&#123;"message": "Halo", "customer_id": "{params.id}", "phone": "+628xxx"&#125;
+          {'  '}&#123;"message": "Halo", "customer_id": "{id}", "phone": "+628xxx"&#125;
         </div>
         <div className="bg-zinc-800 rounded-lg p-4 font-mono text-xs text-blue-400">
           Response:&#123;"reply": "...", "autoReply": true/false, "handoverToAdmin": false&#125;
@@ -317,7 +258,7 @@ function FieldModal({ fields, idx, onClose, onSave }: {
   const [key, setKey] = useState(existing?.key || '')
   const [label, setLabel] = useState(existing?.label || '')
   const [emoji, setEmoji] = useState(existing?.emoji || '💬')
-  const [type, setType] = useState(existing?.type || 'text')
+  const [type, setType] = useState<BotField['type']>(existing?.type || 'text')
   const [required, setRequired] = useState(existing?.required ?? true)
   const [optionsStr, setOptionsStr] = useState(existing?.options?.join(', ') || '')
   const [keywordsStr, setKeywordsStr] = useState(
@@ -357,7 +298,7 @@ function FieldModal({ fields, idx, onClose, onSave }: {
           <div className="grid grid-cols-2 gap-2">
             <div>
               <label className="text-xs text-zinc-500 mb-1 block">Type</label>
-              <select value={type} onChange={e => setType(e.target.value)} className="w-full bg-zinc-800 rounded-lg px-3 py-2 text-sm">
+              <select value={type} onChange={e => setType(e.target.value as BotField['type'])} className="w-full bg-zinc-800 rounded-lg px-3 py-2 text-sm">
                 <option value="text">Text (free text)</option>
                 <option value="keyword">Keyword (detect via keywords)</option>
                 <option value="select">Select (fixed options)</option>

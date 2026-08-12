@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getDb, upsertCustomer, getBotConfig, getLeadByPhone, upsertLead, insertMessageLog } from '@/lib/db'
+import { upsertCustomer, getBotConfig, getLeadByPhone, upsertLead, insertMessageLog, getCustomer } from '@/lib/db'
 import { handleChat } from '@/lib/chat-engine'
 import type { BotField } from '@/lib/db'
 import { verifyWebhookSignature } from '@/lib/webhook-verify'
+import { createAdminClient } from '@/lib/supabase/admin'
+import { kirim } from '@/lib/kirimdev'
 
-// Webhook events
 interface WebhookEvent {
   id: string
   type: string
@@ -32,37 +33,29 @@ interface WebhookEvent {
       id: string
       status: string
       error?: string
-      // For inbound (Meta passthrough):
-      from?: string           // e.g. "628123456789"
-      text?: { body: string } // the message content
-      wa_name?: string        // display name from WA
+      from?: string
+      text?: { body: string }
+      wa_name?: string
     }
-    // KirimDev forward: Meta passthrough body may have different shape
-    // check both possibilities
     [key: string]: unknown
   }
 }
 
-// ─── Helpers ───
-
-/**
- * Try to extract inbound message info from potentially nested payloads.
- * KirimDev may forward Meta Cloud API's message.received payload in data.
- */
-function extractInboundMessage(event: WebhookEvent): { from: string; body: string; waName?: string } | null {
+function extractInboundMessage(event: WebhookEvent): { from: string; body: string; waName?: string; wamid?: string } | null {
   const d = event.data as Record<string, unknown>
 
-  // Case 1: KirimDev's own envelope: data.message.from / data.message.text
+  // Case 1: KirimDev's own envelope
   const msg = d.message as Record<string, unknown> | undefined
   if (msg) {
     const from = (msg.from as string) || (msg as { phone?: string }).phone
     const textBody = (msg.text as { body?: string } | undefined)?.body
       || (msg.body as string | undefined)
       || (msg.text_body as string | undefined)
-    if (from && textBody) return { from, body: textBody, waName: (msg as { wa_name?: string }).wa_name }
+    const wamid = (msg.id as string) || undefined
+    if (from && textBody) return { from, body: textBody, waName: (msg as { wa_name?: string }).wa_name, wamid }
   }
 
-  // Case 2: Meta passthrough (may be in d.entry or d.changes or d.payload)
+  // Case 2: Meta passthrough (entry -> changes -> value -> messages[0])
   const metaPayload = (d.payload as Record<string, unknown> | undefined)
     || (d.meta as Record<string, unknown> | undefined)
     || (d.entry as unknown[] | undefined)?.[0] as Record<string, unknown> | undefined
@@ -82,9 +75,10 @@ function extractInboundMessage(event: WebhookEvent): { from: string; body: strin
       const from = m.from as string | undefined
       const body = (m.text as { body?: string } | undefined)?.body
         || (m.body as string | undefined)
+      const wamid = m.id as string | undefined
       if (from && body) {
         const contacts = (value?.contacts as Array<Record<string, unknown>> | undefined)
-        return { from, body, waName: (contacts?.[0]?.profile as { name?: string } | undefined)?.name }
+        return { from, body, waName: (contacts?.[0]?.profile as { name?: string } | undefined)?.name, wamid }
       }
     }
   }
@@ -97,8 +91,9 @@ export async function POST(request: NextRequest) {
   try {
     const rawBody = await request.text()
     const event = JSON.parse(rawBody) as WebhookEvent
+    const sb = createAdminClient()
 
-    // Verify HMAC signature if KIRIMDEV_WEBHOOK_SECRET is set
+    // Verify HMAC signature if secret is configured
     const secret = process.env.KIRIMDEV_WEBHOOK_SECRET
     if (secret) {
       const signature = request.headers.get('x-kirim-signature-256') || request.headers.get('x-kirim-signature')
@@ -111,25 +106,22 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const db = getDb()
-
-    // Save event to DB for audit
     try {
-      db.prepare(`
-        INSERT INTO webhook_events (id, type, payload, processed, created_at)
-        VALUES (?, ?, ?, ?, ?)
-        ON CONFLICT(id) DO NOTHING
-      `).run(event.id, event.type, rawBody, 1, event.created_at)
-    } catch {
-      // Table might not exist yet, ignore
-    }
+      await sb.from('webhook_events').upsert({
+        id: event.id,
+        type: event.type,
+        payload: event.data,
+        processed: true,
+        created_at: event.created_at || new Date().toISOString(),
+      }, { onConflict: 'id' })
+    } catch {}
 
-    // Handle different event types
+    // Handle event types
     switch (event.type) {
       case 'customer.onboarded': {
         if (event.data.customer) {
           const c = event.data.customer
-          upsertCustomer({
+          await upsertCustomer({
             id: c.id,
             name: c.name,
             email: c.email,
@@ -150,7 +142,7 @@ export async function POST(request: NextRequest) {
       case 'customer.updated': {
         if (event.data.customer) {
           const c = event.data.customer
-          upsertCustomer({
+          await upsertCustomer({
             id: c.id,
             name: c.name,
             email: c.email,
@@ -167,7 +159,7 @@ export async function POST(request: NextRequest) {
       case 'customer.archived': {
         if (event.data.customer) {
           const c = event.data.customer
-          upsertCustomer({
+          await upsertCustomer({
             id: c.id,
             name: c.name,
             email: c.email,
@@ -181,19 +173,15 @@ export async function POST(request: NextRequest) {
 
       case 'customer.setup_link.consumed': {
         if (event.data.setup_link) {
-          db.prepare(`
-            UPDATE setup_links SET status = 'consumed', consumed_at = ?
-            WHERE id = ?
-          `).run(new Date().toISOString(), event.data.setup_link.id)
+          await sb
+            .from('setup_links')
+            .update({ status: 'consumed', consumed_at: new Date().toISOString() })
+            .eq('id', event.data.setup_link.id)
           console.log(`[webhook] Setup link consumed: ${event.data.setup_link.id}`)
         }
         break
       }
 
-      case 'customer.setup_link.created':
-        break
-
-      // Message status updates (sent, delivered, read, failed)
       case 'message.sent':
       case 'message.delivered':
       case 'message.read':
@@ -202,19 +190,16 @@ export async function POST(request: NextRequest) {
           const msg = event.data.message
           const newStatus = msg.status || event.type.split('.')[1]
 
-          const existing = db.prepare('SELECT * FROM message_logs WHERE id = ?').get(msg.id) as { id: string } | undefined
-          if (existing) {
-            db.prepare(`UPDATE message_logs SET status = ?, error = ? WHERE id = ?`).run(newStatus, msg.error || null, msg.id)
-            console.log(`[webhook] Message ${msg.id} → ${newStatus}`)
-          } else {
-            insertMessageLogFromWebhook(db, { id: msg.id, status: newStatus, error: msg.error })
-          }
+          await sb.from('message_logs').upsert({
+            id: msg.id,
+            status: newStatus,
+            error: msg.error || null,
+          }, { onConflict: 'id' })
+          console.log(`[webhook] Message ${msg.id} → ${newStatus}`)
         }
         break
       }
 
-      // ── INBOUND MESSAGE (the important one) ──
-      // Try to handle any message.received / inbound event
       case 'message.received':
       case 'message.inbound':
       case 'webhook.message.received':
@@ -224,17 +209,15 @@ export async function POST(request: NextRequest) {
         break
 
       default: {
-        // Fallback: if payload looks like an inbound message, try to extract it
         const inbound = extractInboundMessage(event)
         if (inbound) {
-          // Find customer by phone_number_id or fall back to generic
           const phoneId = event.data.phone_number?.phone_number_id
             || (event.data as Record<string, unknown>).phone_number_id as string | undefined
 
           if (phoneId) {
-            const cust = db.prepare('SELECT * FROM customers WHERE phone_number_id = ?').get(phoneId) as { id: string } | undefined
+            const { data: cust } = await sb.from('customers').select('id').eq('phone_number_id', phoneId).maybeSingle()
             if (cust) {
-              await processInboundMessage(cust.id, inbound)
+              await processInboundMessage(cust.id, inbound, phoneId)
             }
           }
         }
@@ -252,63 +235,58 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// ─── Inbound message handler ───
-
 async function handleInbound(event: WebhookEvent) {
   const inbound = extractInboundMessage(event)
   if (!inbound) return
 
-  // Find customer
-  const db = getDb()
+  const sb = createAdminClient()
   const phoneId = event.data.phone_number?.phone_number_id
     || (event.data as Record<string, unknown>).phone_number_id as string | undefined
 
   let customerId: string | undefined
   if (phoneId) {
-    const cust = db.prepare('SELECT * FROM customers WHERE phone_number_id = ?').get(phoneId) as { id: string } | undefined
+    const { data: cust } = await sb.from('customers').select('id').eq('phone_number_id', phoneId).maybeSingle()
     if (cust) customerId = cust.id
   }
 
-  // Fallback: use first available customer with bot enabled (dev/demo mode)
   if (!customerId) {
-    const cust = db.prepare('SELECT * FROM customers WHERE status = ? LIMIT 1').get('active') as { id: string } | undefined
+    const { data: cust } = await sb.from('customers').select('id').eq('status', 'active').limit(1).maybeSingle()
     if (cust) customerId = cust.id
   }
 
   if (customerId) {
-    await processInboundMessage(customerId, inbound)
+    await processInboundMessage(customerId, inbound, phoneId)
   }
 }
 
 async function processInboundMessage(
   customerId: string,
-  inbound: { from: string; body: string; waName?: string },
+  inbound: { from: string; body: string; waName?: string; wamid?: string },
+  phoneNumberId?: string
 ) {
-  const db = getDb()
-
-  // Check bot config
-  const botCfg = getBotConfig(customerId)
+  const botCfg = await getBotConfig(customerId)
   if (!botCfg || !botCfg.enabled) return
 
-  // Parse bot config
-  let fields: BotField[] = []
-  let templates: Record<string, string> = {}
-  let pricelistLinks: Record<string, string> = {}
-  try { fields = JSON.parse(botCfg.fields_json || '[]') } catch { }
-  try { templates = JSON.parse(botCfg.templates_json || '{}') } catch { }
-  try { pricelistLinks = JSON.parse(botCfg.pricelist_links_json || '{}') } catch { }
+  const parseJson = (val: unknown, fallback: unknown) => {
+    if (!val) return fallback
+    if (typeof val === 'object') return val
+    if (typeof val === 'string') {
+      try { return JSON.parse(val) } catch { return fallback }
+    }
+    return fallback
+  }
 
-  const customerIdStr = customerId
+  const fields = parseJson(botCfg.fields_json, []) as BotField[]
+  const templates = parseJson(botCfg.templates_json, {}) as Record<string, string>
+  const pricelistLinks = parseJson(botCfg.pricelist_links_json, {}) as Record<string, string>
 
-  // Fix: need to fetch customer name inside
-  const custRow = db.prepare('SELECT * FROM customers WHERE id = ?').get(customerIdStr) as { name: string } | undefined
+  const custRow = await getCustomer(customerId)
   const businessName = custRow?.name || 'Bisnis Kami'
 
   // Check existing lead
-  const existingLead = getLeadByPhone(customerId, inbound.from)
+  const existingLead = await getLeadByPhone(customerId, inbound.from)
 
-  // For inbound webhook, we don't have chat history stored in this DB.
-  // So we accumulate from the incoming message + existing DB data.
+  // Run chat engine
   const result = handleChat(inbound.body, [], existingLead || null, {
     fields,
     templates,
@@ -316,36 +294,53 @@ async function processInboundMessage(
     business_name: businessName,
   })
 
-  // Save lead if complete
-  if (result.leadSaved && result.leadData.is_complete) {
-    const data: Record<string, string> = {}
-    for (const [k, v] of Object.entries(result.leadData.field_values)) {
-      if (typeof v === 'string' && v) data[k] = v
+  // Partial lead saving
+  const fieldValues = result.leadData.field_values || {}
+  const hasData = Object.keys(fieldValues).some(k => k !== '_package' && fieldValues[k])
+
+  if (hasData || result.leadData.is_complete) {
+    const dataObj: Record<string, string> = {}
+    for (const [k, v] of Object.entries(fieldValues)) {
+      if (typeof v === 'string' && v) dataObj[k] = v
     }
-    upsertLead({
+
+    await upsertLead({
       customer_id: customerId,
       contact_phone: inbound.from,
-      contact_name: data['name'] || data['contact_name'],
-      package: data['_package'],
-      status: result.handoverToAdmin ? 'Contacted' : 'Inquiry',
-      data,
+      contact_name: inbound.waName || dataObj['name'] || dataObj['contact_name'],
+      package: dataObj['_package'],
+      status: result.leadData.is_complete ? (result.handoverToAdmin ? 'Contacted' : 'Inquiry') : 'Inquiry',
+      data: dataObj,
       source: 'whatsapp_bot',
+      last_inbound_at: new Date().toISOString(),
     })
   }
 
   // Auto-reply if needed
-  if (result.autoReply && result.reply) {
-    const phoneNumberId = db.prepare('SELECT phone_number_id FROM customers WHERE id = ?').get(customerId) as { phone_number_id: string } | undefined
-    if (phoneNumberId?.phone_number_id) {
-      await sendWhatsAppReply(phoneNumberId.phone_number_id, inbound.from, result.reply, customerId)
+  const effectivePhoneId = phoneNumberId || custRow?.phone_number_id
+  if (result.autoReply && result.reply && effectivePhoneId) {
+    await sendWhatsAppReply(effectivePhoneId, inbound.from, result.reply, customerId)
+  }
+
+  // Mark message as read using KirimDev SDK (if wamid available)
+  if (inbound.wamid && effectivePhoneId) {
+    try {
+      const phone = kirim.phoneNumbers(effectivePhoneId)
+      await phone.messages.markAsRead(inbound.wamid)
+    } catch {
+      // ignore markAsRead errors
     }
   }
 
   // Log inbound message
-  insertMessageLog({
-    id: `in_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+  await insertMessageLog({
+    id: inbound.wamid || `in_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
     customer_id: customerId,
+    phone_number_id: effectivePhoneId || undefined,
     to_number: inbound.from,
+    contact_phone: inbound.from,
+    direction: 'inbound',
+    wamid: inbound.wamid || undefined,
     type: 'incoming',
     status: 'received',
     content: inbound.body,
@@ -379,11 +374,13 @@ async function sendWhatsAppReply(
     if (!res.ok) {
       console.error('[webhook] Failed to send reply:', data.error)
     } else {
-      insertMessageLog({
+      await insertMessageLog({
         id: data.data?.id || `msg_${Date.now()}`,
         customer_id: customerId,
         phone_number_id: phoneNumberId,
         to_number: to,
+        contact_phone: to,
+        direction: 'outbound',
         type: 'text',
         status: data.data?.status || 'pending',
         content: text,
@@ -395,20 +392,7 @@ async function sendWhatsAppReply(
   }
 }
 
-function insertMessageLogFromWebhook(
-  db: ReturnType<typeof getDb>,
-  data: { id: string; status: string; error?: string }
-) {
-  try {
-    db.prepare(`
-      INSERT INTO message_logs (id, status, error, created_at)
-      VALUES (?, ?, ?, ?)
-      ON CONFLICT(id) DO UPDATE SET status = excluded.status, error = excluded.error
-    `).run(data.id, data.status, data.error || null, new Date().toISOString())
-  } catch { }
-}
-
 // GET for verification endpoint
 export async function GET() {
-  return NextResponse.json({ status: 'webhook alive', version: '1.2.0' })
+  return NextResponse.json({ status: 'webhook alive', version: '2.0.0', platform: 'Supabase' })
 }

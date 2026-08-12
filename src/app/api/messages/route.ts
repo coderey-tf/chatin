@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { kirim } from '@/lib/kirimdev'
-import { getCustomer, insertMessageLog, getDb } from '@/lib/db'
+import { getCustomer, insertMessageLog } from '@/lib/db'
+import { createAdminClient } from '@/lib/supabase/admin'
 
 // GET /api/messages - List message logs
 export async function GET(request: NextRequest) {
@@ -8,35 +9,44 @@ export async function GET(request: NextRequest) {
     const searchParams = request.nextUrl.searchParams
     const customerId = searchParams.get('customer_id')
     const limit = parseInt(searchParams.get('limit') || '50')
-    const db = getDb()
+    const sb = createAdminClient()
 
-    let query = 'SELECT ml.*, c.name as customer_name FROM message_logs ml LEFT JOIN customers c ON ml.customer_id = c.id'
-    const params: (string | number)[] = []
+    let query = sb
+      .from('message_logs')
+      .select('*, customers(name)')
+      .order('created_at', { ascending: false })
+      .limit(limit)
 
     if (customerId) {
-      query += ' WHERE ml.customer_id = ?'
-      params.push(customerId)
+      query = query.eq('customer_id', customerId)
     }
 
-    query += ' ORDER BY ml.created_at DESC LIMIT ?'
-    params.push(limit)
+    const { data: messagesData, error: msgError } = await query
+    if (msgError) throw new Error(msgError.message)
 
-    const messages = db.prepare(query).all(...params)
+    const messages = (messagesData || []).map((m) => ({
+      ...m,
+      customer_name: (m.customers as { name: string } | null)?.name || null,
+    }))
 
     // Get stats
-    const stats = db.prepare(`
-      SELECT
-        COUNT(*) as total,
-        SUM(CASE WHEN status = 'sent' THEN 1 ELSE 0 END) as sent,
-        SUM(CASE WHEN status = 'delivered' THEN 1 ELSE 0 END) as delivered,
-        SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending,
-        SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed
-      FROM message_logs
-    `).get() as { total: number; sent: number; delivered: number; pending: number; failed: number } | undefined
+    const [{ count: total }, { count: sent }, { count: delivered }, { count: pending }, { count: failed }] = await Promise.all([
+      sb.from('message_logs').select('*', { count: 'exact', head: true }),
+      sb.from('message_logs').select('*', { count: 'exact', head: true }).eq('status', 'sent'),
+      sb.from('message_logs').select('*', { count: 'exact', head: true }).eq('status', 'delivered'),
+      sb.from('message_logs').select('*', { count: 'exact', head: true }).eq('status', 'pending'),
+      sb.from('message_logs').select('*', { count: 'exact', head: true }).eq('status', 'failed'),
+    ])
 
     return NextResponse.json({
       data: messages,
-      stats: stats || { total: 0, sent: 0, delivered: 0, pending: 0, failed: 0 },
+      stats: {
+        total: total || 0,
+        sent: sent || 0,
+        delivered: delivered || 0,
+        pending: pending || 0,
+        failed: failed || 0,
+      },
     })
   } catch (error) {
     return NextResponse.json(
@@ -59,8 +69,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'to is required' }, { status: 400 })
     }
 
-    // Get customer's phone_number_id from local DB
-    const customer = getCustomer(customer_id)
+    const customer = await getCustomer(customer_id)
     if (!customer) {
       return NextResponse.json({ error: 'Customer not found' }, { status: 404 })
     }
@@ -73,7 +82,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Customer has no connected WhatsApp number' }, { status: 400 })
     }
 
-    // Build message payload
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const payload: any = {
       messaging_product: 'whatsapp',
@@ -87,7 +95,6 @@ export async function POST(request: NextRequest) {
       payload.text = text || { body: 'Test message from dashboard' }
     }
 
-    // Send via KirimDev
     const res = await fetch(
       `https://api.kirimdev.com/v1/${customer.phone_number_id}/messages`,
       {
@@ -106,15 +113,16 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: data.error || 'Failed to send message' }, { status: res.status })
     }
 
-    // Log message
-    insertMessageLog({
+    await insertMessageLog({
       id: data.data?.id || `msg_${Date.now()}`,
       customer_id,
       phone_number_id: customer.phone_number_id,
       to_number: to,
+      contact_phone: to,
+      direction: 'outbound',
       type: type || 'text',
       status: data.data?.status || 'pending',
-      content: JSON.stringify(text || template),
+      content: typeof text === 'string' ? text : JSON.stringify(text || template),
     })
 
     return NextResponse.json({ data })
@@ -126,7 +134,7 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// Also support sending with SDK directly
+// PUT /api/messages - Send using SDK directly
 export async function PUT(request: NextRequest) {
   try {
     const body = await request.json()
@@ -136,7 +144,7 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: 'customer_id, to, and text required' }, { status: 400 })
     }
 
-    const customer = getCustomer(customer_id)
+    const customer = await getCustomer(customer_id)
     if (!customer?.phone_number_id) {
       return NextResponse.json({ error: 'Customer not found or no WA connected' }, { status: 404 })
     }
@@ -149,11 +157,13 @@ export async function PUT(request: NextRequest) {
       text: { body: text },
     })
 
-    insertMessageLog({
+    await insertMessageLog({
       id: result.id,
       customer_id,
       phone_number_id: customer.phone_number_id,
       to_number: to,
+      contact_phone: to,
+      direction: 'outbound',
       type: 'text',
       status: result.status || 'pending',
       content: text,

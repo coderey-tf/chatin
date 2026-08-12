@@ -27,7 +27,7 @@ export async function GET(request: NextRequest) {
         created_at?: string
         updated_at?: string
       }>) {
-        upsertCustomer({
+        await upsertCustomer({
           id: c.id,
           name: c.name,
           email: c.email,
@@ -41,7 +41,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ data: customers })
     } catch {
       // Fallback to local DB
-      const customers = listLocalCustomers(status || undefined)
+      const customers = await listLocalCustomers(status || undefined)
       return NextResponse.json({ data: customers, source: 'local' })
     }
   } catch (error) {
@@ -70,7 +70,7 @@ export async function POST(request: NextRequest) {
     })
 
     // Save to local DB
-    upsertCustomer({
+    await upsertCustomer({
       id: customer.id,
       name: customer.name,
       email: customer.email || null,

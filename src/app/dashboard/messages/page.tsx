@@ -1,4 +1,5 @@
-import { getDb } from '@/lib/db'
+import { listCustomers } from '@/lib/db'
+import { createAdminClient } from '@/lib/supabase/admin'
 import Link from 'next/link'
 
 interface MessageLog {
@@ -6,6 +7,7 @@ interface MessageLog {
   customer_id: string
   phone_number_id: string
   to_number: string
+  contact_phone?: string | null
   type: string
   status: string
   content: string
@@ -14,64 +16,63 @@ interface MessageLog {
   customer_name: string | null
 }
 
-interface Stats {
-  total: number
-  sent: number
-  delivered: number
-  pending: number
-  failed: number
-}
-
-export default function MessagesPage({
+export default async function MessagesPage({
   searchParams,
 }: {
-  searchParams: { customer_id?: string }
+  searchParams: Promise<{ customer_id?: string }>
 }) {
-  const customerId = searchParams.customer_id
-  const db = getDb()
+  const { customer_id: customerId } = await searchParams
+  const sb = createAdminClient()
 
   // Fetch messages
-  let query = 'SELECT ml.*, c.name as customer_name FROM message_logs ml LEFT JOIN customers c ON ml.customer_id = c.id'
-  const params: (string | number)[] = []
+  let query = sb
+    .from('message_logs')
+    .select('*, customers(name)')
+    .order('created_at', { ascending: false })
+    .limit(100)
 
   if (customerId) {
-    query += ' WHERE ml.customer_id = ?'
-    params.push(customerId)
+    query = query.eq('customer_id', customerId)
   }
 
-  query += ' ORDER BY ml.created_at DESC LIMIT 100'
-  const messages = db.prepare(query).all(...params) as MessageLog[]
+  const { data: rawMessages } = await query
+  const messages: MessageLog[] = (rawMessages || []).map((m) => ({
+    ...m,
+    customer_name: (m.customers as { name: string } | null)?.name || null,
+  }))
 
   // Stats
-  const statsQuery = customerId
-    ? db.prepare(`
-        SELECT
-          COUNT(*) as total,
-          SUM(CASE WHEN status = 'sent' THEN 1 ELSE 0 END) as sent,
-          SUM(CASE WHEN status = 'delivered' THEN 1 ELSE 0 END) as delivered,
-          SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending,
-          SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed
-        FROM message_logs WHERE customer_id = ?
-      `).get(customerId) as Stats | undefined
-    : db.prepare(`
-        SELECT
-          COUNT(*) as total,
-          SUM(CASE WHEN status = 'sent' THEN 1 ELSE 0 END) as sent,
-          SUM(CASE WHEN status = 'delivered' THEN 1 ELSE 0 END) as delivered,
-          SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending,
-          SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed
-        FROM message_logs
-      `).get() as Stats | undefined
+  let statsQueryTotal = sb.from('message_logs').select('*', { count: 'exact', head: true })
+  let statsQuerySent = sb.from('message_logs').select('*', { count: 'exact', head: true }).eq('status', 'sent')
+  let statsQueryDelivered = sb.from('message_logs').select('*', { count: 'exact', head: true }).eq('status', 'delivered')
+  let statsQueryPending = sb.from('message_logs').select('*', { count: 'exact', head: true }).eq('status', 'pending')
+  let statsQueryFailed = sb.from('message_logs').select('*', { count: 'exact', head: true }).eq('status', 'failed')
+
+  if (customerId) {
+    statsQueryTotal = statsQueryTotal.eq('customer_id', customerId)
+    statsQuerySent = statsQuerySent.eq('customer_id', customerId)
+    statsQueryDelivered = statsQueryDelivered.eq('customer_id', customerId)
+    statsQueryPending = statsQueryPending.eq('customer_id', customerId)
+    statsQueryFailed = statsQueryFailed.eq('customer_id', customerId)
+  }
+
+  const [{ count: total }, { count: sent }, { count: delivered }, { count: pending }, { count: failed }] = await Promise.all([
+    statsQueryTotal,
+    statsQuerySent,
+    statsQueryDelivered,
+    statsQueryPending,
+    statsQueryFailed,
+  ])
 
   // Customers for filter
-  const customers = db.prepare('SELECT id, name FROM customers ORDER BY name').all() as { id: string; name: string }[]
+  const customers = await listCustomers()
 
   return (
     <div>
       <div className="flex items-center justify-between mb-8">
         <div>
           <h1 className="text-2xl font-bold mb-2">Message Logs</h1>
-          <p className="text-zinc-400">
+          <p className="text-zinc-400 text-sm">
             {customerId ? `Messages for ${customers.find(c => c.id === customerId)?.name || customerId}` : 'All messages sent via platform'}
           </p>
         </div>
@@ -79,35 +80,35 @@ export default function MessagesPage({
 
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8">
-        <div className="bg-zinc-900 rounded-xl p-4">
+        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4">
           <div className="text-zinc-500 text-xs mb-1">Total</div>
-          <div className="text-2xl font-bold">{statsQuery?.total || 0}</div>
+          <div className="text-2xl font-bold">{total || 0}</div>
         </div>
-        <div className="bg-zinc-900 rounded-xl p-4">
+        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4">
           <div className="text-zinc-500 text-xs mb-1">Sent</div>
-          <div className="text-2xl font-bold text-blue-400">{statsQuery?.sent || 0}</div>
+          <div className="text-2xl font-bold text-blue-400">{sent || 0}</div>
         </div>
-        <div className="bg-zinc-900 rounded-xl p-4">
+        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4">
           <div className="text-zinc-500 text-xs mb-1">Delivered</div>
-          <div className="text-2xl font-bold text-green-400">{statsQuery?.delivered || 0}</div>
+          <div className="text-2xl font-bold text-green-400">{delivered || 0}</div>
         </div>
-        <div className="bg-zinc-900 rounded-xl p-4">
+        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4">
           <div className="text-zinc-500 text-xs mb-1">Pending</div>
-          <div className="text-2xl font-bold text-yellow-400">{statsQuery?.pending || 0}</div>
+          <div className="text-2xl font-bold text-yellow-400">{pending || 0}</div>
         </div>
-        <div className="bg-zinc-900 rounded-xl p-4">
+        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4">
           <div className="text-zinc-500 text-xs mb-1">Failed</div>
-          <div className="text-2xl font-bold text-red-400">{statsQuery?.failed || 0}</div>
+          <div className="text-2xl font-bold text-red-400">{failed || 0}</div>
         </div>
       </div>
 
       {/* Filters */}
       <div className="mb-6">
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex items-center gap-2 flex-wrap text-sm">
           <Link
             href="/dashboard/messages"
-            className={`px-3 py-1 rounded-lg text-sm ${
-              !customerId ? 'bg-white text-zinc-900' : 'bg-zinc-800 text-zinc-400 hover:text-white'
+            className={`px-3 py-1.5 rounded-xl font-medium transition ${
+              !customerId ? 'bg-white text-zinc-900' : 'bg-zinc-900 text-zinc-400 border border-zinc-800 hover:text-white'
             }`}
           >
             All customers
@@ -116,8 +117,8 @@ export default function MessagesPage({
             <Link
               key={c.id}
               href={`/dashboard/messages?customer_id=${c.id}`}
-              className={`px-3 py-1 rounded-lg text-sm ${
-                customerId === c.id ? 'bg-white text-zinc-900' : 'bg-zinc-800 text-zinc-400 hover:text-white'
+              className={`px-3 py-1.5 rounded-xl font-medium transition ${
+                customerId === c.id ? 'bg-white text-zinc-900' : 'bg-zinc-900 text-zinc-400 border border-zinc-800 hover:text-white'
               }`}
             >
               {c.name}
@@ -128,7 +129,7 @@ export default function MessagesPage({
 
       {/* Message list */}
       {messages.length === 0 ? (
-        <div className="bg-zinc-900 rounded-xl p-12 text-center text-zinc-500">
+        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-12 text-center text-zinc-500">
           <p className="text-lg mb-2">📭 Belum ada message</p>
           <p className="text-sm">
             {customerId
@@ -137,61 +138,63 @@ export default function MessagesPage({
           </p>
         </div>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-zinc-500 border-b border-zinc-800">
-                <th className="text-left py-3 px-2">To</th>
-                <th className="text-left py-3 px-2">Customer</th>
-                <th className="text-left py-3 px-2">Type</th>
-                <th className="text-left py-3 px-2">Status</th>
-                <th className="text-left py-3 px-2">Content</th>
-                <th className="text-right py-3 px-2">Time</th>
-              </tr>
-            </thead>
-            <tbody>
-              {messages.map((msg) => (
-                <tr key={msg.id} className="border-b border-zinc-800 hover:bg-zinc-900/50">
-                  <td className="py-3 px-2 font-mono text-xs">{msg.to_number}</td>
-                  <td className="py-3 px-2">
-                    {msg.customer_id ? (
-                      <Link
-                        href={`/dashboard/customers/${msg.customer_id}`}
-                        className="text-white hover:underline"
-                      >
-                        {msg.customer_name || msg.customer_id}
-                      </Link>
-                    ) : (
-                      <span className="text-zinc-500">-</span>
-                    )}
-                  </td>
-                  <td className="py-3 px-2">
-                    <span className="bg-zinc-800 text-zinc-300 px-2 py-0.5 rounded-full text-xs">
-                      {msg.type}
-                    </span>
-                  </td>
-                  <td className="py-3 px-2">
-                    <span className={`px-2 py-0.5 rounded-full text-xs ${
-                      msg.status === 'delivered' ? 'bg-green-500/20 text-green-400' :
-                      msg.status === 'sent' ? 'bg-blue-500/20 text-blue-400' :
-                      msg.status === 'pending' ? 'bg-yellow-500/20 text-yellow-400' :
-                      msg.status === 'failed' ? 'bg-red-500/20 text-red-400' :
-                      'bg-zinc-500/20 text-zinc-400'
-                    }`}>
-                      {msg.status}
-                    </span>
-                  </td>
-                  <td className="py-3 px-2 max-w-xs truncate text-zinc-400">
-                    {msg.content?.slice(0, 80) || '-'}
-                    {msg.error && <div className="text-red-400 text-xs">{msg.error.slice(0, 50)}</div>}
-                  </td>
-                  <td className="py-3 px-2 text-right text-zinc-500 text-xs">
-                    {new Date(msg.created_at).toLocaleString('id-ID')}
-                  </td>
+        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-zinc-500 border-b border-zinc-800">
+                  <th className="text-left py-3 px-4">To / Phone</th>
+                  <th className="text-left py-3 px-4">Customer</th>
+                  <th className="text-left py-3 px-4">Type</th>
+                  <th className="text-left py-3 px-4">Status</th>
+                  <th className="text-left py-3 px-4">Content</th>
+                  <th className="text-right py-3 px-4">Time</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {messages.map((msg) => (
+                  <tr key={msg.id} className="border-b border-zinc-800/60 hover:bg-zinc-800/30">
+                    <td className="py-3 px-4 font-mono text-xs text-white">{msg.to_number || msg.contact_phone || '-'}</td>
+                    <td className="py-3 px-4">
+                      {msg.customer_id ? (
+                        <Link
+                          href={`/dashboard/customers/${msg.customer_id}`}
+                          className="text-white hover:underline font-medium"
+                        >
+                          {msg.customer_name || msg.customer_id}
+                        </Link>
+                      ) : (
+                        <span className="text-zinc-500">-</span>
+                      )}
+                    </td>
+                    <td className="py-3 px-4">
+                      <span className="bg-zinc-800 text-zinc-300 border border-zinc-700 px-2.5 py-0.5 rounded-full text-xs">
+                        {msg.type}
+                      </span>
+                    </td>
+                    <td className="py-3 px-4">
+                      <span className={`px-2.5 py-0.5 rounded-full text-xs font-medium border ${
+                        msg.status === 'delivered' ? 'bg-green-500/20 text-green-400 border-green-500/30' :
+                        msg.status === 'sent' ? 'bg-blue-500/20 text-blue-400 border-blue-500/30' :
+                        msg.status === 'pending' ? 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30' :
+                        msg.status === 'failed' ? 'bg-red-500/20 text-red-400 border-red-500/30' :
+                        'bg-zinc-500/20 text-zinc-400 border-zinc-700'
+                      }`}>
+                        {msg.status}
+                      </span>
+                    </td>
+                    <td className="py-3 px-4 max-w-xs truncate text-zinc-300">
+                      {msg.content?.slice(0, 80) || '-'}
+                      {msg.error && <div className="text-red-400 text-xs mt-0.5">{msg.error.slice(0, 50)}</div>}
+                    </td>
+                    <td className="py-3 px-4 text-right text-zinc-500 text-xs">
+                      {new Date(msg.created_at).toLocaleString('id-ID')}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
     </div>

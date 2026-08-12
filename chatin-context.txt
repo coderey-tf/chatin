@@ -1,0 +1,20 @@
+Project: Chatin — Multi-tenant WhatsApp Business API Dashboard                       
+GitHub: https://github.com/coderey-tf/chatin
+Live: https://chatin.coderey.dev                                      
+Stack: Next.js 16 + React 19 + TypeScript 5 + Supabase (PostgreSQL + Auth + Realtime) + KirimDev SDK (official Meta BSP)
+VPS: /var/www/chatin (PM2 chatin, port 3004)                          
+CI/CD: GitHub Actions (.github/workflows/deploy.yml) on push main via SSH & PM2
+Core architecture:                                                                                       
+- KirimDev is official Meta BSP, 10 WA accounts, 1M msgs/mo, Rp199k/mo                                   
+- Meta fees pass-through (billed to each client's WABA, not to us)                
+- Chatin is platform owner, each client = customer with their own WABA                                 
+- Chatbot: generic, template-driven, 5 presets (wedding_decor, jasa_rental, klinik, toko_online, generic)                        
+- DB: Supabase PostgreSQL with native JSONB & RLS policies (`profiles`, `customers`, `setup_links`, `bot_configs`, `leads`, `message_logs`, `webhook_events`, `subscriptions`, `invoices`)
+- Auth: Supabase Auth (Google OAuth + Email/Password) with 60-day inactive user cleanup trigger                                              
+- Live Inbox: `/dashboard/inbox` — 2-column WhatsApp-style chat UI with Supabase Realtime & 24h window badge
+- Billing: `/dashboard/billing` — Plans (Starter, Pro, Enterprise), active limits, and `/api/webhooks/payment` agnostic payment webhook
+4-step funnel: greeting → extract (keyword/date/text/location/select) → pricelist + handover → followup                          
+Main API: POST /api/chat (public), Webhook: POST /api/webhooks/kirimdev (inbound → partial lead save → engine → auto-reply → mark-as-read)
+Dashboard: `/dashboard/customers/[id]/bot` (bot config), `/leads` (leads list with status edit, delete, search, CSV export), `/inbox` (live chat thread), `/billing` (subscriptions)
+All DB funcs in `src/lib/db.ts`, engine in `src/lib/chat-engine.ts`, parser in `src/lib/lead-parser.ts`
+Read AGENTS.md for full technical docs

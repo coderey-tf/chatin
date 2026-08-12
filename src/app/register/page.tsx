@@ -1,58 +1,66 @@
 'use client'
 
-import { useState, Suspense } from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useState } from 'react'
+import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 
-function LoginFormInner() {
+export default function RegisterPage() {
   const router = useRouter()
-  const searchParams = useSearchParams()
-  const redirect = searchParams.get('redirect') || '/dashboard'
-  
+  const [fullName, setFullName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
+  const [message, setMessage] = useState('')
   const [loading, setLoading] = useState(false)
   const [googleLoading, setGoogleLoading] = useState(false)
 
   const supabase = createClient()
 
-  const handleEmailLogin = async (e: React.FormEvent) => {
+  const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
     setError('')
+    setMessage('')
 
     try {
-      const { error: authError } = await supabase.auth.signInWithPassword({
+      const { data, error: signUpError } = await supabase.auth.signUp({
         email,
         password,
+        options: {
+          data: {
+            full_name: fullName,
+          },
+        },
       })
 
-      if (authError) {
-        setError(authError.message === 'Invalid login credentials' 
-          ? 'Email atau password salah.' 
-          : authError.message)
+      if (signUpError) {
+        setError(signUpError.message)
         setLoading(false)
         return
       }
 
-      router.push(redirect)
-      router.refresh()
+      if (data.session) {
+        router.push('/dashboard')
+        router.refresh()
+      } else {
+        setMessage('Registrasi berhasil! Silakan cek email Anda untuk verifikasi akun.')
+        setLoading(false)
+      }
     } catch {
       setError('Gagal menghubungi server.')
       setLoading(false)
     }
   }
 
-  const handleGoogleLogin = async () => {
+  const handleGoogleRegister = async () => {
     setGoogleLoading(true)
     setError('')
     try {
       const { error: oauthError } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          redirectTo: `${window.location.origin}/auth/callback?redirect=${encodeURIComponent(redirect)}`,
+          redirectTo: `${window.location.origin}/auth/callback?redirect=/dashboard`,
         },
       })
       if (oauthError) {
@@ -60,7 +68,7 @@ function LoginFormInner() {
         setGoogleLoading(false)
       }
     } catch {
-      setError('Gagal memulai login Google.')
+      setError('Gagal memulai registrasi Google.')
       setGoogleLoading(false)
     }
   }
@@ -70,8 +78,8 @@ function LoginFormInner() {
       <div className="max-w-md w-full bg-zinc-900 rounded-2xl p-8 border border-zinc-800 shadow-2xl">
         <div className="text-center mb-8">
           <div className="text-4xl mb-3">📱</div>
-          <h1 className="text-2xl font-bold">Chatin</h1>
-          <p className="text-zinc-400 text-sm mt-1">Masuk ke Dashboard Multi-tenant WhatsApp</p>
+          <h1 className="text-2xl font-bold">Buat Akun Chatin</h1>
+          <p className="text-zinc-400 text-sm mt-1">Kelola WhatsApp Business API Multi-tenant Anda</p>
         </div>
 
         {error && (
@@ -80,9 +88,15 @@ function LoginFormInner() {
           </div>
         )}
 
-        {/* Google OAuth button */}
+        {message && (
+          <div className="bg-green-500/10 border border-green-500/30 text-green-400 rounded-xl p-3.5 text-sm mb-6">
+            {message}
+          </div>
+        )}
+
+        {/* Google Register button */}
         <button
-          onClick={handleGoogleLogin}
+          onClick={handleGoogleRegister}
           disabled={googleLoading || loading}
           className="w-full bg-zinc-800 hover:bg-zinc-700 text-white rounded-xl py-3 px-4 font-medium transition flex items-center justify-center gap-3 border border-zinc-700 disabled:opacity-50 mb-6"
         >
@@ -104,18 +118,30 @@ function LoginFormInner() {
               d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
             />
           </svg>
-          {googleLoading ? 'Menghubungkan...' : 'Lanjutkan dengan Google'}
+          {googleLoading ? 'Menghubungkan...' : 'Daftar dengan Google'}
         </button>
 
         <div className="relative flex items-center justify-center mb-6">
           <div className="border-t border-zinc-800 w-full"></div>
           <span className="bg-zinc-900 px-3 text-xs text-zinc-500 uppercase font-semibold tracking-wider">
-            atau Email
+            atau Form Registrasi
           </span>
         </div>
 
-        {/* Email Login Form */}
-        <form onSubmit={handleEmailLogin} className="space-y-4">
+        {/* Email Register Form */}
+        <form onSubmit={handleRegister} className="space-y-4">
+          <div>
+            <label className="block text-xs font-medium text-zinc-400 mb-1.5">Nama Lengkap</label>
+            <input
+              type="text"
+              required
+              value={fullName}
+              onChange={(e) => setFullName(e.target.value)}
+              placeholder="Budi Santoso"
+              className="w-full bg-zinc-800/80 rounded-xl px-4 py-3 text-white placeholder-zinc-500 border border-zinc-700/50 focus:outline-none focus:border-white/30 text-sm"
+            />
+          </div>
+
           <div>
             <label className="block text-xs font-medium text-zinc-400 mb-1.5">Email</label>
             <input
@@ -133,45 +159,30 @@ function LoginFormInner() {
             <input
               type="password"
               required
+              minLength={6}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="••••••••"
+              placeholder="Minimal 6 karakter"
               className="w-full bg-zinc-800/80 rounded-xl px-4 py-3 text-white placeholder-zinc-500 border border-zinc-700/50 focus:outline-none focus:border-white/30 text-sm"
             />
           </div>
 
           <button
             type="submit"
-            disabled={loading || !email.trim() || !password.trim()}
+            disabled={loading || !email.trim() || !password.trim() || !fullName.trim()}
             className="w-full bg-white text-zinc-900 rounded-xl py-3 font-semibold hover:bg-zinc-100 transition disabled:opacity-50 text-sm mt-2"
           >
-            {loading ? 'Logging in...' : 'Login dengan Email'}
+            {loading ? 'Mendaftarkan...' : 'Daftar Akun'}
           </button>
         </form>
 
         <div className="mt-6 text-center text-xs text-zinc-500">
-          Belum punya akun?{' '}
-          <Link href="/register" className="text-white hover:underline font-medium">
-            Daftar sekarang
+          Sudah punya akun?{' '}
+          <Link href="/login" className="text-white hover:underline font-medium">
+            Masuk di sini
           </Link>
         </div>
       </div>
     </div>
-  )
-}
-
-function LoginFallback() {
-  return (
-    <div className="min-h-screen flex items-center justify-center bg-zinc-950 text-zinc-100">
-      <p className="text-zinc-500">Loading...</p>
-    </div>
-  )
-}
-
-export default function LoginPage() {
-  return (
-    <Suspense fallback={<LoginFallback />}>
-      <LoginFormInner />
-    </Suspense>
   )
 }

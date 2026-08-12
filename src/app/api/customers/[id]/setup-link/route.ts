@@ -19,7 +19,7 @@ export async function POST(
     })
 
     // Save to local DB
-    insertSetupLink({
+    await insertSetupLink({
       id: link.id,
       customer_id: id,
       status: 'active',

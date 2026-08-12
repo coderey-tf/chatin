@@ -1,27 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getCustomer, getBotConfig, getLeadByPhone, upsertLead, insertMessageLog } from '@/lib/db'
+import { getCustomer, getBotConfig, getLeadByPhone, upsertLead, insertMessageLog, listCustomers } from '@/lib/db'
 import { handleChat, type ChatEngineResult } from '@/lib/chat-engine'
 import type { BotField } from '@/lib/db'
 
 /**
  * POST /api/chat — Generic chat engine endpoint
- *
- * Same interface as Sebelas Decor's /api/chat but driven by BotConfig.
- *
- * Body:
- *   message (string, required): incoming message text
- *   history (array, optional): [{role, content}, ...]
- *   phone (string, optional): customer phone number
- *   customer_id (string, optional): chatin customer ID (auto-detected if missing)
- *   source (string, optional): "whatsapp_bot" | "web" | "manual"
- *   business_name (string, optional): override business name in greeting
- *
- * Response:
- *   reply (string): text to send back (empty if autoReply=false)
- *   leadSaved (bool): whether a lead was created/updated
- *   leadData (object): collected lead fields
- *   autoReply (bool): whether the bot should auto-reply
- *   handoverToAdmin (bool): whether to handover to human
  */
 export async function POST(request: NextRequest) {
   try {
@@ -42,13 +25,9 @@ export async function POST(request: NextRequest) {
     const businessName = body.business_name as string | undefined
 
     // ── Determine customer_id ──
-    // If not provided, try to find from phone or use a default
     let cid = customerId
     if (!cid && phone) {
-      // Find any customer with a bot_config that matches this phone... or use first available
-      // For now, use a simple approach: if only 1 customer exists, use that
-      const { listCustomers } = await import('@/lib/db')
-      const allCustomers = listCustomers('active')
+      const allCustomers = await listCustomers('active')
       if (allCustomers.length === 1) {
         cid = allCustomers[0].id
       }
@@ -62,7 +41,7 @@ export async function POST(request: NextRequest) {
     }
 
     // ── Load bot config ──
-    const botCfg = getBotConfig(cid)
+    const botCfg = await getBotConfig(cid)
     if (!botCfg || !botCfg.enabled) {
       return NextResponse.json({
         reply: '',
@@ -74,21 +53,25 @@ export async function POST(request: NextRequest) {
       })
     }
 
-    // Parse config
-    let fields: BotField[] = []
-    let templates: Record<string, string> = {}
-    let pricelist_links: Record<string, string> = {}
-    let cfg: Record<string, unknown> = {}
-    try { fields = JSON.parse(botCfg.fields_json || '[]') } catch { }
-    try { templates = JSON.parse(botCfg.templates_json || '{}') } catch { }
-    try { pricelist_links = JSON.parse(botCfg.pricelist_links_json || '{}') } catch { }
-    try { if (botCfg.config_json) cfg = JSON.parse(botCfg.config_json) } catch { }
+    // Parse config (handles both object/array and stringified JSON)
+    const parseJson = (val: unknown, fallback: unknown) => {
+      if (!val) return fallback
+      if (typeof val === 'object') return val
+      if (typeof val === 'string') {
+        try { return JSON.parse(val) } catch { return fallback }
+      }
+      return fallback
+    }
 
-    const customer = getCustomer(cid)
+    const fields = parseJson(botCfg.fields_json, []) as BotField[]
+    const templates = parseJson(botCfg.templates_json, {}) as Record<string, string>
+    const pricelist_links = parseJson(botCfg.pricelist_links_json, {}) as Record<string, string>
+
+    const customer = await getCustomer(cid)
     const effectiveBusinessName = businessName || customer?.name || 'Bisnis Kami'
 
     // ── Check existing lead ──
-    const existingLead = phone ? getLeadByPhone(cid, phone) : undefined
+    const existingLead = phone ? await getLeadByPhone(cid, phone) : null
 
     // ── Run chat engine ──
     const result: ChatEngineResult = handleChat(userMessage, history, existingLead || null, {
@@ -98,29 +81,38 @@ export async function POST(request: NextRequest) {
       business_name: effectiveBusinessName,
     })
 
-    // ── Save lead if engine says so ──
-    if (result.leadSaved && result.leadData.is_complete && phone) {
-      const data: Record<string, string> = {}
-      for (const [k, v] of Object.entries(result.leadData.field_values)) {
-        if (typeof v === 'string' && v) data[k] = v
+    // ── Save lead (Partial Lead Saving: saves whenever fields are present) ──
+    if (phone) {
+      const fieldValues = result.leadData.field_values || {}
+      const hasData = Object.keys(fieldValues).some(k => k !== '_package' && fieldValues[k])
+
+      if (hasData || result.leadData.is_complete) {
+        const dataObj: Record<string, string> = {}
+        for (const [k, v] of Object.entries(fieldValues)) {
+          if (typeof v === 'string' && v) dataObj[k] = v
+        }
+
+        await upsertLead({
+          customer_id: cid,
+          contact_phone: phone,
+          contact_name: dataObj['name'] || dataObj['contact_name'],
+          package: dataObj['_package'],
+          status: result.leadData.is_complete ? (result.handoverToAdmin ? 'Contacted' : 'Inquiry') : 'Inquiry',
+          data: dataObj,
+          source,
+          last_inbound_at: new Date().toISOString(),
+        })
       }
-      upsertLead({
-        customer_id: cid,
-        contact_phone: phone,
-        contact_name: data['name'] || data['contact_name'],
-        package: data['_package'],
-        status: result.handoverToAdmin ? 'Contacted' : 'Inquiry',
-        data,
-        source,
-      })
     }
 
     // ── Log message ──
-    insertMessageLog({
+    await insertMessageLog({
       id: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       customer_id: cid,
       to_number: phone,
-      type: 'incoming',
+      contact_phone: phone,
+      direction: 'inbound',
+      type: 'text',
       status: 'received',
       content: userMessage,
     })

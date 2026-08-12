@@ -8,17 +8,22 @@ export async function GET(
 ) {
   try {
     const { id } = await params
-    const cfg = getBotConfig(id)
+    const cfg = await getBotConfig(id)
     if (!cfg) return NextResponse.json({ data: null })
 
-    let fields: unknown[] = []
-    let templates: Record<string, string> = {}
-    let pricelist_links: Record<string, string> = {}
-    let config: Record<string, unknown> | null = null
-    try { fields = JSON.parse(cfg.fields_json || '[]') } catch { }
-    try { templates = JSON.parse(cfg.templates_json || '{}') } catch { }
-    try { pricelist_links = JSON.parse(cfg.pricelist_links_json || '{}') } catch { }
-    try { if (cfg.config_json) config = JSON.parse(cfg.config_json) } catch { }
+    const parseJson = (val: unknown, fallback: unknown) => {
+      if (!val) return fallback
+      if (typeof val === 'object') return val
+      if (typeof val === 'string') {
+        try { return JSON.parse(val) } catch { return fallback }
+      }
+      return fallback
+    }
+
+    const fields = parseJson(cfg.fields_json, [])
+    const templates = parseJson(cfg.templates_json, {})
+    const pricelist_links = parseJson(cfg.pricelist_links_json, {})
+    const config = parseJson(cfg.config_json, null)
 
     return NextResponse.json({
       data: {
@@ -46,7 +51,7 @@ export async function PUT(
     const { id } = await params
     const body = await request.json()
 
-    upsertBotConfig({
+    await upsertBotConfig({
       customer_id: id,
       industry_preset: body.industry_preset,
       enabled: body.enabled ? 1 : 0,
