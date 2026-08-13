@@ -114,14 +114,14 @@ export async function POST(request: NextRequest) {
     }
 
     await insertMessageLog({
-      id: data.data?.id || `msg_${Date.now()}`,
+      id: data.messages?.[0]?.id || data.data?.id || `msg_${Date.now()}`,
       customer_id,
       phone_number_id: customer.phone_number_id,
       to_number: to,
       contact_phone: to,
       direction: 'outbound',
       type: type || 'text',
-      status: data.data?.status || 'pending',
+      status: data.data?.status || 'sent',
       content: typeof text === 'string' ? text : JSON.stringify(text || template),
     })
 

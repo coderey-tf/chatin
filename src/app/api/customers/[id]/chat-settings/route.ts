@@ -23,7 +23,7 @@ export async function GET(
     const fields = parseJson(cfg.fields_json, [])
     const templates = parseJson(cfg.templates_json, {})
     const pricelist_links = parseJson(cfg.pricelist_links_json, {})
-    const config = parseJson(cfg.config_json, null)
+    const config = parseJson(cfg.config_json, {})
 
     return NextResponse.json({
       data: {
@@ -31,6 +31,7 @@ export async function GET(
         customer_id: cfg.customer_id,
         industry_preset: cfg.industry_preset,
         enabled: !!cfg.enabled,
+        config_json: config,
         fields,
         templates,
         pricelist_links,
@@ -54,14 +55,15 @@ export async function PUT(
     await upsertBotConfig({
       customer_id: id,
       industry_preset: body.industry_preset,
-      enabled: body.enabled ? 1 : 0,
-      config: body.config,
+      enabled: Boolean(body.enabled),
+      test_mode_enabled: body.test_mode_enabled !== undefined ? Boolean(body.test_mode_enabled) : undefined,
+      test_phone_numbers: body.test_phone_numbers !== undefined ? String(body.test_phone_numbers) : undefined,
       fields: body.fields,
       templates: body.templates,
       pricelist_links: body.pricelist_links,
     })
 
-    return NextResponse.json({ success: true })
+    return NextResponse.json({ ok: true })
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : 'Failed' }, { status: 500 })
   }

@@ -83,6 +83,7 @@ export interface Lead {
 
 export async function upsertCustomer(data: {
   id: string
+  user_id?: string | null
   name: string
   email?: string | null
   status?: string
@@ -121,10 +122,22 @@ export async function getCustomer(id: string): Promise<Customer | null> {
   return data
 }
 
-export async function listCustomers(status?: string): Promise<Customer[]> {
+export async function listCustomers(status?: string, userId?: string, userEmail?: string): Promise<Customer[]> {
   try {
     const sb = createAdminClient()
+
+    // Auto-heal: automatically link any existing customer whose email matches userEmail but user_id is null
+    if (userId && userEmail) {
+      await sb.from('customers').update({ user_id: userId }).eq('email', userEmail).is('user_id', null)
+    }
+
     let query = sb.from('customers').select('*').order('created_at', { ascending: false })
+    if (userId && userEmail) {
+      query = query.or(`user_id.eq.${userId},email.eq.${userEmail}`)
+    } else if (userId) {
+      query = query.eq('user_id', userId)
+    }
+
     if (status) query = query.eq('status', status)
     const { data, error } = await query
     if (error) {
@@ -206,6 +219,8 @@ export async function upsertBotConfig(data: {
   customer_id: string
   industry_preset?: string
   enabled?: boolean | number
+  test_mode_enabled?: boolean | number
+  test_phone_numbers?: string
   config?: Record<string, unknown>
   fields?: BotField[]
   templates?: Record<string, string>
@@ -217,11 +232,22 @@ export async function upsertBotConfig(data: {
 
   const isEnabled = data.enabled !== undefined ? (data.enabled === true || data.enabled === 1) : (existing ? existing.enabled : true)
 
+  const existingConfig = (typeof existing?.config_json === 'object' && existing?.config_json !== null)
+    ? (existing.config_json as Record<string, unknown>)
+    : (() => { try { return JSON.parse((existing?.config_json as string) || '{}') } catch { return {} } })()
+
+  const mergedConfig = {
+    ...existingConfig,
+    ...(data.config || {}),
+    ...(data.test_mode_enabled !== undefined ? { test_mode_enabled: data.test_mode_enabled === true || data.test_mode_enabled === 1 } : {}),
+    ...(data.test_phone_numbers !== undefined ? { test_phone_numbers: data.test_phone_numbers } : {}),
+  }
+
   const payload = {
     customer_id: data.customer_id,
     industry_preset: data.industry_preset ?? existing?.industry_preset ?? 'generic',
     enabled: isEnabled,
-    config_json: data.config ?? existing?.config_json ?? null,
+    config_json: mergedConfig,
     fields_json: data.fields ?? existing?.fields_json ?? null,
     templates_json: data.templates ?? existing?.templates_json ?? null,
     pricelist_links_json: data.pricelist_links ?? existing?.pricelist_links_json ?? null,
@@ -326,6 +352,7 @@ export async function updateLead(leadId: string, customerId: string, updates: {
   contact_name?: string
   package?: string
   data?: Record<string, unknown>
+  data_json?: Record<string, unknown>
 }): Promise<void> {
   const sb = createAdminClient()
   const payload: Record<string, unknown> = {
@@ -368,7 +395,7 @@ export interface InboxContact {
   is_24h_open: boolean
 }
 
-export async function listInboxContacts(customerId?: string): Promise<InboxContact[]> {
+export async function listInboxContacts(customerId?: string, userId?: string): Promise<InboxContact[]> {
   const sb = createAdminClient()
   
   let query = sb
@@ -434,7 +461,7 @@ export async function getConversationThread(customerId: string, contactPhone: st
   return data || []
 }
 
-export async function getDashboardStats() {
+export async function getDashboardStats(userId?: string) {
   try {
     const sb = createAdminClient()
     const todayStart = new Date().toISOString().split('T')[0]

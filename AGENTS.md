@@ -127,9 +127,12 @@ Chatin uses **Supabase Auth** with full support for:
 ## Live Conversation Inbox
 
 Available at `/dashboard/inbox`:
-- **2-Column Layout**: Left column displays contacts with search filter & customer switcher; right column displays active conversation thread.
-- **Supabase Realtime**: Connects via WebSocket (`supabase.channel('inbox-live')`) to render inbound and outbound messages instantly without manual refreshing.
-- **24h Window Badge**: Computes sisa waktu Jendela 24 Jam layanan Meta (`✅ Window Open (14j tersisa)` / `⏰ Closed`).
+- **3-Column KirimDev Inspired Layout**:
+  - **Left Column**: Contact list, search filter, status pills (`Semua`, `Terbuka`, `Closed`), and tenant switcher.
+  - **Middle Column**: Active chat thread header with badge alignment fix (`✅ Jendela 24j Terbuka`), KirimDev dark green/grey WhatsApp chat bubbles (`#005c4b` / `#202c33`), WhatsApp Markdown parser (`*bold*`, `_italic_`, links), status tick marks (`✓✓`), and multiline reply bar (`Shift+Enter`).
+  - **Right Column (Pelanggan & Lead Detail Sidebar)**: KirimDev-style customer profile card and real-time inspection of captured lead form fields (`name`, `event_date`, `venue_type`, `package`, lead status).
+- **Supabase Realtime**: Connects via WebSocket (`supabase.channel('inbox-live-realtime')`) to render inbound/outbound messages and status updates instantly.
+- **24h Window Badge**: Computes remaining time for Meta 24h customer service window (`✅ 24j Terbuka (23j 54m tersisa)` / `⏰ Closed`).
 - **Direct Reply**: `/api/inbox/[phone]` allows admins to reply directly via KirimDev SDK if within 24h.
 - **Mark As Read**: Webhook receiver automatically triggers `markAsRead(wamid)` via KirimDev SDK.
 
@@ -225,6 +228,7 @@ interface BotField {
 │       ├── Sidebar.tsx                 # Desktop sidebar & mobile slide-over drawer
 │       ├── bot/page.tsx                # Client direct route for bot settings
 │       ├── leads/page.tsx              # Client direct route for leads management
+│       ├── profile/page.tsx            # Client direct route for business profile
 │       ├── loading.tsx                 # Skeleton loader
 │       ├── error.tsx                   # Error boundary
 │       ├── not-found.tsx               # 404 page
@@ -299,6 +303,18 @@ Whenever code is pushed to branch `main`, GitHub Actions automatically:
 5. **Agnostic Payment Integration**: Webhook `/api/webhooks/payment` accepts webhook events from any gateway (Xendit, Midtrans, Mayar, Tripay) without lock-in.
 
 6. **Automated CI/CD Deployment**: Push to `main` automatically builds and deploys to VPS (`/var/www/chatin`) via SSH and PM2 without manual SSH sessions.
+
+7. **Interactive WhatsApp Sandbox Chat Simulator**: Integrated live interactive sandbox mode (`simMode === 'interactive'`) in Bot Settings (`/dashboard/bot`). Uses an internal scroller ref (`chatCanvasRef.current.scrollTop = chatCanvasRef.current.scrollHeight`) to prevent webpage scroll jumps, multiline `<textarea>` for `Shift+Enter` newlines, and proper chat bubble alignment (Customer typing on RIGHT in `#005c4b` green, Bot auto-reply on LEFT in `#202c33` dark grey).
+
+8. **100% Dynamic Conflict & Synonym-Aware Scoring Matcher**: `findMatchingPricelistLink` extracts synonyms and mutually-exclusive conflict pairs dynamically directly from active `BotField[]` configuration (zero hardcoded industry terms). Assigns +10 bonus for keyword matches and -15 penalty for conflicting options of the same field.
+
+9. **Levenshtein Fuzzy Typo Detection**: `lead-parser.ts` includes a fast Levenshtein Distance algorithm (`isFuzzyMatch`) for keyword field extraction, tolerating up to 2 typos for words >= 4 characters. Name extraction uses line-bounded regex (`[^\n\r]`) and expanded `NAME_STOP_WORDS` to prevent form labels (`tanggal`, `lokasi`, `jenis`, etc.) from leaking into customer names.
+
+10. **Single-Tenant Mode Enforcement & Auto-Healing User Link**: Enforces single-tenant mode (max 1 customer tenant per user account). Hides `+ Add Customer` button when a user has an active customer, hides `OPERATOR & MULTI-TENANT` section from Sidebar, blocks creation via `POST /api/customers`, and automatically links orphan customer records (`user_id = null`) to logged-in users via matching `email` in `listCustomers`.
+
+11. **Live WhatsApp Testing Whitelist Mode**: Webhook receiver (`/api/webhooks/kirimdev`) checks `botConfig.config_json.test_mode_enabled` and `test_phone_numbers`. When enabled, bot auto-replies are ONLY executed for whitelisted tester phone numbers (e.g. `085156266871`), while real public customer messages are safely logged to Live Inbox without triggering bot auto-replies.
+
+12. **Typing Mode Indicator**: Webhook auto-reply calls Meta WhatsApp API `action: { type: 'typing_on' }` with a 1-second delay prior to sending outbound text responses, simulating human typing behavior. Interactive Sandbox simulator in `/dashboard/bot` also renders animated typing bubble indicators (`sedang mengetik...`).
 
 ---
 

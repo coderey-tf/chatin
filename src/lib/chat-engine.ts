@@ -4,10 +4,10 @@
  * 4-step funnel:
  *   1. Greeting → ask for fields defined in bot_config.fields
  *   2. Extract field values from conversation (lead-parser.ts)
- *   3. If complete → send pricelist link + handover to admin
+ *   3. If complete → send completion message with dynamic condition-based pricelist + handover to admin
  *   4. If incomplete → ask for missing fields only
  *
- * Works for ANY industry — the BotField[] config defines what to collect.
+ * Works dynamically for ANY industry — zero hardcoded conditions or preset terms.
  */
 
 import { accumulateLeadData, isGreeting, type LeadData } from './lead-parser'
@@ -22,15 +22,126 @@ export type { IndustryPreset as IndustryTemplate } from './industry-templates'
 
 export function buildFieldForms(fields: BotField[]): string {
   return fields
-    .map(f => `${f.emoji} **${f.label}** ${f.required ? '' : '(opsional)'}:`)
+    .map(f => `${f.emoji} *${f.label}* ${f.required ? '(wajib)' : '(opsional)'}:`)
     .join('\n')
 }
 
 export function buildMissingFields(fields: BotField[], missingKeys: string[]): string {
   return fields
     .filter(f => missingKeys.includes(f.key))
-    .map(f => `- ${f.emoji} **${f.label}**`)
+    .map(f => `${f.emoji} *${f.label}* ${f.required ? '(wajib)' : '(opsional)'}:`)
     .join('\n')
+}
+
+/**
+ * 100% Dynamic Conflict & Synonym-Aware Scoring Matcher for pricelist links.
+ * Extracts synonyms and conflict groups dynamically from the active BotField[] configuration.
+ * Works for ANY industry (Wedding, Rental, Clinic, Online Shop, Barbershop, Custom).
+ */
+export function findMatchingPricelistLink(
+  fieldValues: Record<string, string>,
+  pricelistLinks: Record<string, string>,
+  fields: BotField[] = [],
+): { title: string; url: string } | null {
+  const entries = Object.entries(pricelistLinks)
+  if (entries.length === 0) return null
+
+  // Combine all extracted lead values into lowercase text tokens
+  const leadValuesArray = Object.values(fieldValues).filter(v => typeof v === 'string')
+  const allValuesText = leadValuesArray.join(' ').toLowerCase()
+
+  // ── Build Dynamic Synonyms & Conflict Maps directly from BotField[] ──
+  const dynamicSynonyms: Record<string, string[]> = {}
+  const dynamicConflictPairs: Array<{ valueA: string; keywordsA: string[]; valueB: string; keywordsB: string[] }> = []
+
+  for (const field of fields) {
+    if (field.type === 'keyword' && field.keywords) {
+      const optionEntries = Object.entries(field.keywords)
+      
+      // Register synonyms for each value option
+      for (const [valName, kwList] of optionEntries) {
+        const valLower = valName.toLowerCase()
+        const allKeywords = [valLower, ...kwList.map(k => k.toLowerCase())]
+        
+        for (const kw of allKeywords) {
+          dynamicSynonyms[kw] = allKeywords
+        }
+      }
+
+      // Register conflict pairs between options of the SAME field
+      for (let i = 0; i < optionEntries.length; i++) {
+        for (let j = i + 1; j < optionEntries.length; j++) {
+          const [valA, kwA] = optionEntries[i]
+          const [valB, kwB] = optionEntries[j]
+          dynamicConflictPairs.push({
+            valueA: valA,
+            keywordsA: [valA.toLowerCase(), ...kwA.map(k => k.toLowerCase())],
+            valueB: valB,
+            keywordsB: [valB.toLowerCase(), ...kwB.map(k => k.toLowerCase())],
+          })
+        }
+      }
+    }
+  }
+
+  let bestMatch: { title: string; url: string; score: number } | null = null
+
+  for (const [key, url] of entries) {
+    if (!url) continue
+
+    const cleanTitle = key.replace(/\[.*?\]/, '').trim()
+
+    // Extract keywords: from explicit brackets "Title [kw1, kw2]" or title words
+    const kwMatch = key.match(/\[(.*?)\]/)
+    const keywords = kwMatch
+      ? kwMatch[1].split(',').map(k => k.trim().toLowerCase()).filter(Boolean)
+      : key.toLowerCase().split(/[\s+&/,_-]+/).filter(k => k.length > 2 && k !== 'pricelist' && k !== 'katalog')
+
+    if (keywords.length === 0) continue
+
+    let score = 0
+
+    for (const kw of keywords) {
+      const synList = dynamicSynonyms[kw] || [kw]
+      const isMatched = synList.some(syn => allValuesText.includes(syn))
+
+      if (isMatched) {
+        score += 10
+      } else {
+        // Check if lead data selected a conflicting option from the same field
+        for (const pair of dynamicConflictPairs) {
+          const isKwInA = pair.keywordsA.some(k => k === kw || k.includes(kw) || kw.includes(k))
+          const isKwInB = pair.keywordsB.some(k => k === kw || k.includes(kw) || kw.includes(k))
+
+          if (isKwInA) {
+            // Check if lead selected option B
+            const leadSelectedB = pair.keywordsB.some(kB => allValuesText.includes(kB))
+            if (leadSelectedB) {
+              score -= 15 // Penalty for conflicting with lead selection
+            }
+          } else if (isKwInB) {
+            // Check if lead selected option A
+            const leadSelectedA = pair.keywordsA.some(kA => allValuesText.includes(kA))
+            if (leadSelectedA) {
+              score -= 15 // Penalty for conflicting with lead selection
+            }
+          }
+        }
+      }
+    }
+
+    if (!bestMatch || score > bestMatch.score) {
+      bestMatch = { title: cleanTitle, url, score }
+    }
+  }
+
+  if (bestMatch && bestMatch.score > -20) {
+    return { title: bestMatch.title, url: bestMatch.url }
+  }
+
+  // Fallback to first link if all rules failed/conflicted
+  const [firstKey, firstUrl] = entries[0]
+  return { title: firstKey.replace(/\[.*?\]/, '').trim(), url: firstUrl }
 }
 
 export function buildPricelistResponse(
@@ -38,20 +149,32 @@ export function buildPricelistResponse(
   fields: BotField[],
   pricelistLinks: Record<string, string>,
   businessName: string,
+  completionTemplate?: string,
 ): string {
   const name = fieldValues['name'] || fieldValues['contact_name'] || 'Kak'
-  const pkg = fieldValues['_package']
-  const link = pkg && pricelistLinks[pkg] ? pricelistLinks[pkg] : Object.values(pricelistLinks)[0]
+
+  // Dynamic Synonym & Conflict Scoring Matcher
+  const matched = findMatchingPricelistLink(fieldValues, pricelistLinks, fields)
 
   const fieldSummary = fields
     .filter(f => fieldValues[f.key])
-    .map(f => `${f.emoji} **${f.label}**: ${fieldValues[f.key]}`)
+    .map(f => `${f.emoji} *${f.label}*: ${fieldValues[f.key]}`)
     .join('\n')
 
-  let msg = `Terima kasih banyak, Kak ${name}! ✨\n\nData sudah kami catat:\n${fieldSummary}\n\n`
-  if (link) msg += `📄 Berikut link pricelist resmi:\n${link}\n\n`
-  msg += `Percakapan ini akan segera dilanjutkan langsung oleh Admin kami untuk konsultasi & penyesuaian lebih lanjut! 😊`
-  return msg
+  const templateToUse = (completionTemplate && completionTemplate.trim())
+    ? completionTemplate
+    : INDUSTRY_TEMPLATES.wedding_decor.default_completion
+
+  let messageBody = templateToUse
+    .replace(/\{\{\s*business_name\s*\}\}/g, businessName)
+    .replace(/\{\{\s*name\s*\}\}/g, name)
+    .replace(/\{\{\s*field_summary\s*\}\}/g, fieldSummary)
+
+  if (matched && matched.url && !messageBody.includes(matched.url)) {
+    messageBody += `\n\n📄 *Link Katalog (${matched.title}):*\n${matched.url}`
+  }
+
+  return messageBody
 }
 
 // ─── Main handler ───
@@ -79,7 +202,6 @@ export function handleChat(
   },
 ): ChatEngineResult {
   const { fields, templates, pricelist_links, business_name } = botConfig
-  const nameKey = fields.find(f => f.key === 'name' || f.key === 'contact_name')?.key || 'name'
 
   const existingData: Record<string, string> = existingLead
     ? (() => {
@@ -119,8 +241,8 @@ export function handleChat(
   if (isGreeting(userMessage, fields) && history.length <= 1 && Object.keys(existingData).length === 0) {
     const fieldForms = buildFieldForms(fields)
     const greeting = (templates.greeting || '')
-      .replace(/\{\{business_name\}\}/g, business_name)
-      .replace(/\{\{field_forms\}\}/g, fieldForms)
+      .replace(/\{\{\s*business_name\s*\}\}/g, business_name)
+      .replace(/\{\{\s*field_forms\s*\}\}/g, fieldForms)
     return {
       reply: greeting,
       leadSaved: false,
@@ -133,9 +255,15 @@ export function handleChat(
   // ── 4. Extract and accumulate data ──
   const leadInfo = accumulateLeadData(history, userMessage, fields, existingData)
 
-  // ── 5. Complete → pricelist + handover ──
+  // ── 5. Complete → send completion message with dynamic pricelist + handover to admin ──
   if (leadInfo.is_complete) {
-    const reply = buildPricelistResponse(leadInfo.field_values, fields, pricelist_links, business_name)
+    const reply = buildPricelistResponse(
+      leadInfo.field_values,
+      fields,
+      pricelist_links,
+      business_name,
+      templates.completion
+    )
     return {
       reply,
       leadSaved: true,
@@ -149,9 +277,9 @@ export function handleChat(
   const fieldForms = buildFieldForms(fields)
   const missingText = buildMissingFields(fields, leadInfo.missing_fields)
   const followup = (templates.followup || templates.greeting || '')
-    .replace(/\{\{business_name\}\}/g, business_name)
-    .replace(/\{\{missing_fields\}\}/g, missingText)
-    .replace(/\{\{field_forms\}\}/g, fieldForms)
+    .replace(/\{\{\s*business_name\s*\}\}/g, business_name)
+    .replace(/\{\{\s*missing_fields\s*\}\}/g, missingText)
+    .replace(/\{\{\s*field_forms\s*\}\}/g, fieldForms)
 
   return {
     reply: followup || `Terima kasih infonya Kak! 😊\nBoleh dilengkapi lagi ya:\n${missingText}`,

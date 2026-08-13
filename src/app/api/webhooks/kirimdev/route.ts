@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { upsertCustomer, getBotConfig, getLeadByPhone, upsertLead, insertMessageLog, getCustomer } from '@/lib/db'
 import { handleChat } from '@/lib/chat-engine'
+import { INDUSTRY_TEMPLATES } from '@/lib/industry-templates'
 import type { BotField } from '@/lib/db'
 import { verifyWebhookSignature } from '@/lib/webhook-verify'
 import { createAdminClient } from '@/lib/supabase/admin'
@@ -184,6 +185,30 @@ export async function POST(request: NextRequest) {
       console.log(`[webhook] ⚠️ Message event type "${event.type}" id "${event.id}" but no inbound extracted. Keys: ${JSON.stringify(Object.keys(event.data)).substring(0, 200)}`)
     }
 
+    // Process status updates from Meta (sent, delivered, read, failed)
+    if (Array.isArray(event.data.entry) && event.data.entry.length > 0) {
+      const entry = event.data.entry[0] as Record<string, unknown>
+      const changes = (entry?.changes as Record<string, unknown>[] | undefined) || []
+      for (const change of changes) {
+        if (change.field === 'messages' || change.field === 'message') {
+          const value = (change.value as Record<string, unknown> | undefined)
+          const statuses = value?.statuses as Array<Record<string, unknown>> | undefined
+          if (statuses && Array.isArray(statuses)) {
+            for (const s of statuses) {
+              const statusId = (s.id as string) || (s.wamid as string)
+              const newStatus = s.status as string
+              if (statusId && newStatus) {
+                await sb.from('message_logs')
+                  .update({ status: newStatus })
+                  .or(`id.eq.${statusId},wamid.eq.${statusId}`)
+                console.log(`[webhook] Updated message status for ${statusId} -> ${newStatus}`)
+              }
+            }
+          }
+        }
+      }
+    }
+
     // Handle customer / phone events
     switch (event.type) {
       case 'customer.onboarded': {
@@ -300,6 +325,32 @@ async function processInboundMessage(
     return
   }
 
+  // ── Check Live WhatsApp Testing Whitelist Mode ──
+  const configJson = (typeof botCfg.config_json === 'object' && botCfg.config_json !== null)
+    ? (botCfg.config_json as Record<string, unknown>)
+    : (() => { try { return JSON.parse(botCfg.config_json as string) } catch { return {} } })()
+
+  const isTestMode = configJson?.test_mode_enabled === true
+  const testPhonesRaw = (configJson?.test_phone_numbers as string) || ''
+
+  if (isTestMode) {
+    const allowedTestPhones = testPhonesRaw
+      .split(/[\s,;]+/)
+      .map(p => p.replace(/[^\d]/g, '').replace(/^0/, '62'))
+      .filter(Boolean)
+
+    const senderPhoneClean = inbound.from.replace(/[^\d]/g, '').replace(/^0/, '62')
+
+    const isTester = allowedTestPhones.some(
+      tp => senderPhoneClean.endsWith(tp) || tp.endsWith(senderPhoneClean)
+    )
+
+    if (!isTester) {
+      console.log(`[webhook] 🧪 Live Test Mode ACTIVE — ignoring non-tester inbound from ${inbound.from}. Allowed whitelisted testers: [${allowedTestPhones.join(', ')}]`)
+      return
+    }
+  }
+
   const parseJson = (val: unknown, fallback: unknown) => {
     if (!val) return fallback
     if (typeof val === 'object') return val
@@ -309,9 +360,20 @@ async function processInboundMessage(
     return fallback
   }
 
-  const fields = parseJson(botCfg.fields_json, []) as BotField[]
-  const templates = parseJson(botCfg.templates_json, {}) as Record<string, string>
-  const pricelistLinks = parseJson(botCfg.pricelist_links_json, {}) as Record<string, string>
+  const preset = INDUSTRY_TEMPLATES[botCfg.industry_preset] || INDUSTRY_TEMPLATES.wedding_decor
+
+  const rawFields = parseJson(botCfg.fields_json, []) as BotField[]
+  const fields = rawFields.length > 0 ? rawFields : preset.fields
+
+  const rawTemplates = parseJson(botCfg.templates_json, {}) as Record<string, string>
+  const templates = {
+    greeting: rawTemplates.greeting || preset.default_greeting,
+    followup: rawTemplates.followup || preset.default_followup,
+    completion: rawTemplates.completion || preset.default_completion,
+  }
+
+  const rawLinks = parseJson(botCfg.pricelist_links_json, {}) as Record<string, string>
+  const pricelistLinks = Object.keys(rawLinks).length > 0 ? rawLinks : preset.default_pricelist_links
 
   // 2. Check existing lead
   const existingLead = await getLeadByPhone(customerId, inbound.from)
@@ -337,7 +399,7 @@ async function processInboundMessage(
     await upsertLead({
       customer_id: customerId,
       contact_phone: inbound.from,
-      contact_name: inbound.waName || dataObj['name'] || dataObj['contact_name'] || undefined,
+      contact_name: dataObj['name'] || dataObj['contact_name'] || inbound.waName || undefined,
       package: dataObj['_package'],
       status: result.leadData.is_complete ? (result.handoverToAdmin ? 'Contacted' : 'Inquiry') : 'Inquiry',
       data: dataObj,
@@ -351,8 +413,8 @@ async function processInboundMessage(
     await sendWhatsAppReply(effectivePhoneId, inbound.from, result.reply, customerId)
   }
 
-  // 6. Mark as read
-  if (inbound.wamid && effectivePhoneId) {
+  // 6. Mark as read (ONLY if bot auto-replied and has NOT handed over to human admin)
+  if (inbound.wamid && effectivePhoneId && result.autoReply && !result.handoverToAdmin) {
     try {
       const phone = kirim.phoneNumbers(effectivePhoneId)
       await phone.messages.markAsRead(inbound.wamid)
@@ -367,6 +429,30 @@ async function sendWhatsAppReply(
   customerId: string,
 ) {
   try {
+    // 1. Send "typing_on" action to Meta WhatsApp API via KirimDev
+    try {
+      await fetch(
+        `https://api.kirimdev.com/v1/${phoneNumberId}/messages`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${process.env.KIRIMDEV_API_KEY}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            messaging_product: 'whatsapp',
+            recipient_type: 'individual',
+            to,
+            type: 'action',
+            action: { type: 'typing_on' },
+          }),
+        }
+      )
+      // Realistic typing duration (1 second)
+      await new Promise((resolve) => setTimeout(resolve, 1000))
+    } catch {}
+
+    // 2. Send text message payload
     const res = await fetch(
       `https://api.kirimdev.com/v1/${phoneNumberId}/messages`,
       {
@@ -387,18 +473,19 @@ async function sendWhatsAppReply(
     if (!res.ok) {
       console.error('[webhook] Failed to send reply:', JSON.stringify(data).substring(0, 500))
     } else {
+      const wamid = data.messages?.[0]?.id || data.data?.id || `msg_${Date.now()}`
       await insertMessageLog({
-        id: data.data?.id || `msg_${Date.now()}`,
+        id: wamid,
         customer_id: customerId,
         phone_number_id: phoneNumberId,
         to_number: to,
         contact_phone: to,
         direction: 'outbound',
         type: 'text',
-        status: data.data?.status || 'pending',
+        status: data.data?.status || 'sent',
         content: text,
       })
-      console.log(`[webhook] Auto-reply sent to ${to}`)
+      console.log(`[webhook] Auto-reply sent to ${to} (wamid=${wamid})`)
     }
   } catch (err) {
     console.error('[webhook] Error sending reply:', err)

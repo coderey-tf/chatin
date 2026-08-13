@@ -1,4 +1,5 @@
 import { listCustomers } from '@/lib/db'
+import { createClient } from '@/lib/supabase/server'
 import Link from 'next/link'
 
 export default async function CustomersPage({
@@ -7,21 +8,34 @@ export default async function CustomersPage({
   searchParams: Promise<{ status?: string }>
 }) {
   const { status } = await searchParams
-  const customers = await listCustomers(status)
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+
+  // Fetch all customers for this user (to check single-tenant count)
+  const allUserCustomers = await listCustomers(undefined, user?.id, user?.email ?? undefined)
+  const filteredCustomers = status ? allUserCustomers.filter(c => c.status === status) : allUserCustomers
+
+  const hasExistingTenant = allUserCustomers.length >= 1
 
   return (
     <div>
       <div className="flex items-center justify-between mb-8">
         <div>
-          <h1 className="text-2xl font-bold mb-1">Customers</h1>
-          <p className="text-zinc-400 text-sm">Manage your WhatsApp tenants</p>
+          <h1 className="text-2xl font-bold mb-1">Tenant & Akun WhatsApp</h1>
+          <p className="text-zinc-400 text-sm">Kelola tenant dan koneksi nomor WhatsApp bisnis Anda</p>
         </div>
-        <Link
-          href="/dashboard/customers/new"
-          className="bg-white text-zinc-900 px-4 py-2.5 rounded-xl font-semibold hover:bg-zinc-100 transition text-sm"
-        >
-          + Add Customer
-        </Link>
+        {hasExistingTenant ? (
+          <div className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-semibold">
+            <span>✓ Single-Tenant Mode (1 WABA Connected)</span>
+          </div>
+        ) : (
+          <Link
+            href="/dashboard/customers/new"
+            className="bg-white text-zinc-900 px-4 py-2.5 rounded-xl font-semibold hover:bg-zinc-100 transition text-sm"
+          >
+            + Connect WhatsApp Business
+          </Link>
+        )}
       </div>
 
       {/* Filters */}
@@ -61,19 +75,21 @@ export default async function CustomersPage({
       </div>
 
       {/* Customer list */}
-      {customers.length === 0 ? (
+      {filteredCustomers.length === 0 ? (
         <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-12 text-center text-zinc-500">
-          <p className="mb-4">Belum ada customer{status ? ` dengan status "${status}"` : ''}</p>
-          <Link
-            href="/dashboard/customers/new"
-            className="bg-white text-zinc-900 px-4 py-2 rounded-xl font-semibold hover:bg-zinc-100 transition text-sm"
-          >
-            + Add Customer
-          </Link>
+          <p className="mb-4">Belum ada tenant WhatsApp{status ? ` dengan status "${status}"` : ''}</p>
+          {!hasExistingTenant && (
+            <Link
+              href="/dashboard/customers/new"
+              className="bg-white text-zinc-900 px-4 py-2 rounded-xl font-semibold hover:bg-zinc-100 transition text-sm"
+            >
+              + Connect WhatsApp Business
+            </Link>
+          )}
         </div>
       ) : (
         <div className="grid gap-4">
-          {customers.map((customer) => (
+          {filteredCustomers.map((customer) => (
             <Link
               key={customer.id}
               href={`/dashboard/customers/${customer.id}`}

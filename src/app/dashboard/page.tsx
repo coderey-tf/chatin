@@ -1,13 +1,21 @@
 import { listCustomers, getDashboardStats } from '@/lib/db'
+import { createClient } from '@/lib/supabase/server'
 import Link from 'next/link'
 
 export default async function DashboardPage() {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  const userId = user?.id
+
   const [customers, dbStats] = await Promise.all([
-    listCustomers(),
-    getDashboardStats(),
+    listCustomers(undefined, userId),
+    getDashboardStats(userId),
   ])
 
-  const myBusiness = customers[0]
+  // Filter out archived customers and get active tenant business
+  const activeCustomers = customers.filter(c => c.status !== 'archived')
+  const myBusiness = activeCustomers.find(c => c.status === 'active') || activeCustomers[0] || customers[0]
+
   const hasPhone = Boolean(myBusiness?.phone_number)
   const hasPhoneId = Boolean(myBusiness?.phone_number_id)
   const isFullyConnected = hasPhone && hasPhoneId

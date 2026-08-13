@@ -53,15 +53,19 @@ Webhook processing:
 
 HMAC verification: wrapped in try/catch (non-fatal on failure, logs warning only)
 
-## Chat Engine Flow
-4-step funnel: greeting → extract (keyword/date/text/location/select) → pricelist + handover → followup
-Main API: POST /api/chat (public), Webhook: POST /api/webhooks/kirimdev
-Dashboard: /dashboard/bot (bot config), /dashboard/leads (leads), /dashboard/inbox (live), /dashboard/billing (subs)
+## Chat Engine Flow & Features
+- 4-step funnel: greeting → extract (keyword/date/text/location/select) → completion template + dynamic pricelist link + admin handover → followup
+- Levenshtein Fuzzy Typo Detection: isFuzzyMatch in lead-parser.ts tolerates typos up to 2 chars for words >= 4 chars (e.g. Engagnment -> Engagement)
+- Dynamic Pricelist Matcher: findMatchingPricelistLink in chat-engine.ts generates synonyms and conflict pairs dynamically from BotField[] config (scoring bonus +10, conflict penalty -15)
+- Interactive Sandbox: Live chat simulator in /dashboard/bot with scroller ref, Shift+Enter textarea, and correct user (right/green) vs bot (left/grey) bubbles
+- Live Testing Whitelist Mode: Toggle in /dashboard/bot + webhook check allowing bot auto-replies ONLY for whitelisted tester phone numbers (e.g. 085156266871)
+- Single-Tenant & Auto-Healing: Enforces max 1 tenant per user account, hiding + Add Customer UI and OPERATOR & MULTI-TENANT section from Sidebar, blocking POST /api/customers, and auto-linking orphan customer records via matching email in listCustomers
+- Typing Mode Indicator: Action payload `action: { type: 'typing_on' }` sent via KirimDev/Meta API prior to auto-replies, plus animated typing indicator in Interactive Sandbox Simulator
 
 ## Key Files
-- src/lib/db.ts — All Supabase DB helpers (async, uses createAdminClient)
-- src/lib/chat-engine.ts — Chat engine + INDUSTRY_TEMPLATES (single source of truth)
-- src/lib/lead-parser.ts — Field extraction (regex, keywords, dates, names)
+- src/lib/db.ts — All Supabase DB helpers (async, uses createAdminClient + auto-healing user_id link)
+- src/lib/chat-engine.ts — Chat engine + INDUSTRY_TEMPLATES + findMatchingPricelistLink (single source of truth)
+- src/lib/lead-parser.ts — Field extraction (Levenshtein typo detection, line-bounded regex, dates, names)
 - src/lib/webhook-verify.ts — HMAC webhook signature verification (t=v1 format)
 - src/lib/kirimdev.ts — KirimDev SDK lazy initialization
 - src/lib/supabase/server.ts — Server-side Supabase client (@supabase/ssr)
@@ -71,7 +75,7 @@ Dashboard: /dashboard/bot (bot config), /dashboard/leads (leads), /dashboard/inb
 - src/app/api/chat/route.ts — Public chat endpoint
 - src/app/api/inbox/route.ts — Inbox contacts API
 - src/app/api/inbox/[phone]/route.ts — Thread + 24h reply API
-- src/app/dashboard/inbox/page.tsx — Live Conversation Inbox (Supabase Realtime WS)
-- src/app/dashboard/billing/page.tsx — Subscription & billing page
+- src/app/dashboard/inbox/page.tsx — Live Conversation Inbox: 3-column KirimDev UI (/dashboard/inbox) with Realtime WS, status filters (Semua, Terbuka, Closed), WhatsApp Markdown parser (*bold* -> bold text), KirimDev green/grey bubbles, header badge alignment fix, and Customer/Lead detail right panel
+- src/app/dashboard/bot/page.tsx — Bot settings + Interactive WhatsApp Sandbox Chat Simulator
 
 Read AGENTS.md for full technical docs

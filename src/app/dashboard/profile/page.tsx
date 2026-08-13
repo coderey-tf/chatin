@@ -1,9 +1,9 @@
 import { listCustomers } from '@/lib/db'
 import { createClient } from '@/lib/supabase/server'
 import Link from 'next/link'
-import BotSettingsClient from '../customers/[id]/bot/BotSettingsClient'
+import CustomerDetailClient from '../customers/[id]/CustomerDetailClient'
 
-export default async function DashboardBotPage() {
+export default async function DashboardProfilePage() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
 
@@ -13,10 +13,10 @@ export default async function DashboardBotPage() {
     return (
       <div className="min-h-[50vh] flex flex-col items-center justify-center text-center p-6">
         <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-8 max-w-md w-full">
-          <div className="text-4xl mb-3">🤖</div>
-          <h2 className="text-xl font-bold text-white mb-2">Belum Ada Bot Config</h2>
+          <div className="text-4xl mb-3">🏢</div>
+          <h2 className="text-xl font-bold text-white mb-2">Profil Bisnis Belum Ada</h2>
           <p className="text-zinc-400 text-xs mb-6">
-            Silakan hubungkan akun WhatsApp Business API Anda terlebih dahulu untuk mengaktifkan bot.
+            Silakan hubungkan akun WhatsApp Business API Anda terlebih dahulu untuk mengaktifkan profil bisnis.
           </p>
           <Link
             href="/dashboard/customers/new"
@@ -31,5 +31,5 @@ export default async function DashboardBotPage() {
 
   const customerId = customers[0].id
 
-  return <BotSettingsClient customerId={customerId} hideBackButton />
+  return <CustomerDetailClient customerId={customerId} hideBackLink />
 }

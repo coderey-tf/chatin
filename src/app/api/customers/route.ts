@@ -1,49 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { createClient } from '@/lib/supabase/server'
 import { kirim, TEAM_ID } from '@/lib/kirimdev'
 import { upsertCustomer, listCustomers as listLocalCustomers } from '@/lib/db'
 import type { CustomerStatus } from '@kirimdev/sdk'
 
-// GET /api/customers - List all customers
+// GET /api/customers - List customers belonging to logged in user
 export async function GET(request: NextRequest) {
   try {
+    const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
     const searchParams = request.nextUrl.searchParams
     const status = searchParams.get('status') as CustomerStatus | null
 
-    // Try to get from KirimDev API first, fallback to local DB
-    try {
-      const params: { status?: CustomerStatus } = {}
-      if (status) params.status = status
-
-      const response = await kirim.customers.list(params)
-
-      // Sync to local DB
-      const customers = Array.isArray(response) ? response : ((response as { data?: unknown[] }).data || [])
-      for (const c of customers as Array<{
-        id: string
-        name: string
-        email?: string
-        status?: CustomerStatus
-        metadata?: object
-        created_at?: string
-        updated_at?: string
-      }>) {
-        await upsertCustomer({
-          id: c.id,
-          name: c.name,
-          email: c.email,
-          status: c.status,
-          metadata: c.metadata,
-          created_at: c.created_at,
-          updated_at: c.updated_at,
-        })
-      }
-
-      return NextResponse.json({ data: customers })
-    } catch {
-      // Fallback to local DB
-      const customers = await listLocalCustomers(status || undefined)
-      return NextResponse.json({ data: customers, source: 'local' })
-    }
+    const customers = await listLocalCustomers(status || undefined, user.id)
+    return NextResponse.json({ data: customers, source: 'local' })
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Failed to list customers' },
@@ -52,9 +27,25 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// POST /api/customers - Create new customer
+// POST /api/customers - Create new customer (Enforce Single Tenant Limit per user)
 export async function POST(request: NextRequest) {
   try {
+    const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    // Single-Tenant check: max 1 customer per user account
+    const existingCustomers = await listLocalCustomers(undefined, user.id)
+    if (existingCustomers.length >= 1) {
+      return NextResponse.json(
+        { error: 'Akun Anda sudah terhubung dengan 1 Tenant WhatsApp (Single-Tenant Mode). Tidak dapat menambah tenant baru.' },
+        { status: 400 }
+      )
+    }
+
     const body = await request.json()
     const { name, email, metadata } = body
 
@@ -62,25 +53,32 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Name is required' }, { status: 400 })
     }
 
-    const customer = await kirim.customers.create({
+    let customerId: string | undefined
+    try {
+      const customer = await kirim.customers.create({
+        name: name.trim(),
+        email: email?.trim() || undefined,
+        metadata: metadata || undefined,
+        ...(TEAM_ID ? { team_id: TEAM_ID } : {}),
+      })
+      customerId = customer.id
+    } catch {
+      // Fallback if SDK fails
+    }
+
+    if (!customerId) {
+      customerId = `cus_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`
+    }
+
+    const newCustomer = await upsertCustomer({
+      id: customerId,
       name: name.trim(),
       email: email?.trim() || undefined,
-      metadata: metadata || undefined,
-      ...(TEAM_ID ? { team_id: TEAM_ID } : {}),
+      status: 'pending',
+      user_id: user.id,
     })
 
-    // Save to local DB
-    await upsertCustomer({
-      id: customer.id,
-      name: customer.name,
-      email: customer.email || null,
-      status: customer.status || 'pending',
-      metadata: customer.metadata,
-      created_at: customer.created_at,
-      updated_at: customer.updated_at,
-    })
-
-    return NextResponse.json({ data: customer }, { status: 201 })
+    return NextResponse.json({ data: newCustomer })
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Failed to create customer' },

@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import Link from 'next/link'
 
 interface InboxContact {
   contact_phone: string
@@ -24,16 +25,22 @@ interface MessageItem {
   created_at: string
 }
 
-interface CustomerOption {
+interface LeadData {
   id: string
-  name: string
+  contact_phone: string
+  contact_name: string | null
+  package: string | null
+  status: string
+  data_json: Record<string, string> | string | null
+  source: string | null
+  last_inbound_at: string | null
+  created_at: string
 }
 
 export default function InboxPage() {
   const [contacts, setContacts] = useState<InboxContact[]>([])
-  const [customers, setCustomers] = useState<CustomerOption[]>([])
-  const [selectedCustomerId, setSelectedCustomerId] = useState<string>('')
   const [selectedContact, setSelectedContact] = useState<InboxContact | null>(null)
+  const [activeLead, setActiveLead] = useState<LeadData | null>(null)
 
   const [messages, setMessages] = useState<MessageItem[]>([])
   const [replyText, setReplyText] = useState('')
@@ -42,36 +49,29 @@ export default function InboxPage() {
   const [sendingReply, setSendingReply] = useState(false)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
+  const [statusFilter, setStatusFilter] = useState<'all' | 'open' | 'closed'>('all')
+  const [showRightPanel, setShowRightPanel] = useState<boolean>(true)
 
   const chatBottomRef = useRef<HTMLDivElement>(null)
   const supabase = createClient()
 
-  // Fetch customers for filter
-  useEffect(() => {
-    fetch('/api/customers')
-      .then(res => res.json())
-      .then(d => { if (d.data) setCustomers(d.data) })
-      .catch(() => {})
-  }, [])
-
   // Fetch inbox contact list
   const fetchContacts = useCallback(async () => {
     try {
-      const url = selectedCustomerId ? `/api/inbox?customer_id=${selectedCustomerId}` : '/api/inbox'
-      const res = await fetch(url)
+      const res = await fetch('/api/inbox')
       const data = await res.json()
       if (data.data) {
         setContacts(data.data)
       }
     } catch { }
     setLoadingContacts(false)
-  }, [selectedCustomerId])
+  }, [])
 
   useEffect(() => {
     fetchContacts()
   }, [fetchContacts])
 
-  // Fetch conversation thread for selected contact
+  // Fetch conversation thread & lead data for selected contact
   const fetchThread = useCallback(async () => {
     if (!selectedContact) return
     setLoadingThread(true)
@@ -81,6 +81,11 @@ export default function InboxPage() {
       const data = await res.json()
       if (data.data) {
         setMessages(data.data)
+      }
+      if (data.lead) {
+        setActiveLead(data.lead)
+      } else {
+        setActiveLead(null)
       }
     } catch { }
     setLoadingThread(false)
@@ -110,6 +115,16 @@ export default function InboxPage() {
           }
         }
       )
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'message_logs' },
+        (payload) => {
+          const updatedMsg = payload.new as MessageItem
+          if (selectedContact && updatedMsg.contact_phone === selectedContact.contact_phone) {
+            setMessages((prev) => prev.map(m => m.id === updatedMsg.id ? { ...m, status: updatedMsg.status } : m))
+          }
+        }
+      )
       .subscribe()
 
     return () => {
@@ -118,8 +133,8 @@ export default function InboxPage() {
   }, [selectedContact, fetchContacts, supabase])
 
   // Send direct reply from dashboard
-  const handleSendReply = async (e: React.FormEvent) => {
-    e.preventDefault()
+  const handleSendReply = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault()
     if (!selectedContact || !replyText.trim() || sendingReply) return
 
     setSendingReply(true)
@@ -150,15 +165,21 @@ export default function InboxPage() {
     }
   }
 
-  // Filter contacts by search query
-  const filteredContacts = contacts.filter((c) => {
-    const q = searchQuery.toLowerCase()
-    return (
-      (c.contact_name && c.contact_name.toLowerCase().includes(q)) ||
-      c.contact_phone.includes(q) ||
-      c.customer_name.toLowerCase().includes(q)
-    )
-  })
+  // Reset / Delete active lead to test bot flow again
+  const handleDeleteActiveLead = async () => {
+    if (!activeLead || !selectedContact) return
+    if (!confirm(`Reset data lead untuk ${selectedContact.contact_phone}? Bot WhatsApp akan dapat memproses pertanyaan dari awal lagi.`)) return
+
+    try {
+      await fetch(`/api/customers/${selectedContact.customer_id}/leads/${activeLead.id}`, {
+        method: 'DELETE',
+      })
+      setActiveLead(null)
+      fetchThread()
+    } catch {
+      alert('Gagal menghapus lead')
+    }
+  }
 
   // Format 24h window left time
   const getWindowTimeLeft = (lastInboundAt: string | null): string | null => {
@@ -172,12 +193,46 @@ export default function InboxPage() {
     return `${hours}j ${mins}m`
   }
 
+  // Filter contacts by search query & status filter
+  const filteredContacts = contacts.filter((c) => {
+    const q = searchQuery.toLowerCase()
+    const matchesSearch =
+      (c.contact_name && c.contact_name.toLowerCase().includes(q)) ||
+      c.contact_phone.includes(q)
+
+    const isOpen = Boolean(getWindowTimeLeft(c.last_inbound_at))
+    if (statusFilter === 'open') return matchesSearch && isOpen
+    if (statusFilter === 'closed') return matchesSearch && !isOpen
+    return matchesSearch
+  })
+
+  // Render WhatsApp Markdown (*bold*, _italic_, etc.)
+  const renderWhatsAppText = (text: string) => {
+    if (!text) return ''
+    const parts = text.split(/(\*\*.*?\*\*|\*.*?\*|_.*?_|~.*?~)/g)
+    return parts.map((part, i) => {
+      if (part.startsWith('**') && part.endsWith('**')) {
+        return <strong key={i} className="font-bold text-white">{part.slice(2, -2)}</strong>
+      }
+      if (part.startsWith('*') && part.endsWith('*')) {
+        return <strong key={i} className="font-bold text-white">{part.slice(1, -1)}</strong>
+      }
+      if (part.startsWith('_') && part.endsWith('_')) {
+        return <em key={i} className="italic text-zinc-200">{part.slice(1, -1)}</em>
+      }
+      if (part.startsWith('~') && part.endsWith('~')) {
+        return <del key={i} className="line-through opacity-70">{part.slice(1, -1)}</del>
+      }
+      return part
+    })
+  }
+
   return (
-    <div className="h-[calc(100vh-6.5rem)] flex flex-col">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-4 shrink-0">
+    <div className="h-[calc(100vh-6.5rem)] flex flex-col space-y-3 max-w-full overflow-hidden">
+      {/* Page Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 shrink-0">
         <div>
-          <h1 className="text-2xl font-bold text-white tracking-tight flex items-center gap-2">
+          <h1 className="text-xl font-bold text-white tracking-tight flex items-center gap-2">
             <span>💬</span> Live Conversation Inbox
             <span className="text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2.5 py-0.5 rounded-full">
               Realtime WS
@@ -187,62 +242,59 @@ export default function InboxPage() {
             Pantau dan balas pesan pelanggan secara real-time atas nama bisnis WhatsApp Anda
           </p>
         </div>
-
-        {/* Customer Filter */}
-        {customers.length > 1 && (
-          <select
-            value={selectedCustomerId}
-            onChange={(e) => setSelectedCustomerId(e.target.value)}
-            className="bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-zinc-700"
-          >
-            <option value="">Semua Tenant Customer</option>
-            {customers.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </select>
-        )}
       </div>
 
-      {/* Main Inbox Container */}
-      <div className="flex-1 min-h-0 bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden flex shadow-2xl">
+      {/* Main Container */}
+      <div className="flex-1 min-h-0 bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden flex shadow-2xl relative">
         
-        {/* Left Column: Contact List */}
-        <div className="w-80 border-r border-zinc-800 flex flex-col bg-zinc-900/60 shrink-0">
+        {/* COLUMN 1: Left Contact List & Filters */}
+        <div className={`w-full md:w-72 border-r border-zinc-800 flex flex-col bg-zinc-900/80 shrink-0 ${selectedContact ? 'hidden md:flex' : 'flex'}`}>
           
-          {/* Search Box */}
-          <div className="p-3 border-b border-zinc-800">
+          {/* Search & Status Filters */}
+          <div className="p-3 border-b border-zinc-800 space-y-2">
             <input
               type="text"
-              placeholder="🔍 Cari kontak atau no WA..."
+              placeholder="🔍 Cari percakapan, kontak..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-zinc-700"
+              className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-zinc-700 font-sans"
             />
+
+            <div className="flex bg-zinc-950 p-1 rounded-xl border border-zinc-800 text-[11px] font-medium gap-1">
+              <button
+                onClick={() => setStatusFilter('all')}
+                className={`flex-1 py-1 rounded-lg transition text-center ${statusFilter === 'all' ? 'bg-zinc-800 text-white font-bold' : 'text-zinc-400 hover:text-zinc-200'}`}
+              >
+                Semua ({contacts.length})
+              </button>
+              <button
+                onClick={() => setStatusFilter('open')}
+                className={`flex-1 py-1 rounded-lg transition text-center ${statusFilter === 'open' ? 'bg-emerald-500/20 text-emerald-400 font-bold border border-emerald-500/30' : 'text-zinc-400 hover:text-zinc-200'}`}
+              >
+                Terbuka
+              </button>
+              <button
+                onClick={() => setStatusFilter('closed')}
+                className={`flex-1 py-1 rounded-lg transition text-center ${statusFilter === 'closed' ? 'bg-amber-500/20 text-amber-400 font-bold border border-amber-500/30' : 'text-zinc-400 hover:text-zinc-200'}`}
+              >
+                Closed
+              </button>
+            </div>
           </div>
 
-          {/* Contact Items */}
+          {/* Contact Items List */}
           <div className="flex-1 overflow-y-auto divide-y divide-zinc-800/40">
             {loadingContacts ? (
-              <div className="p-6 text-center text-zinc-500 text-xs">Memuat kontak...</div>
+              <div className="p-6 text-center text-zinc-500 text-xs">Memuat percakapan...</div>
             ) : filteredContacts.length === 0 ? (
-              <div className="p-6 text-center space-y-3">
-                <div className="w-12 h-12 bg-zinc-800/60 text-zinc-400 rounded-2xl flex items-center justify-center text-xl mx-auto border border-zinc-700/50">
+              <div className="p-6 text-center space-y-2">
+                <div className="w-10 h-10 bg-zinc-800/60 text-zinc-400 rounded-2xl flex items-center justify-center text-lg mx-auto border border-zinc-700/50">
                   💬
                 </div>
-                <div>
-                  <h4 className="text-xs font-bold text-zinc-300">Belum Ada Chat Masuk</h4>
-                  <p className="text-[11px] text-zinc-500 mt-1 leading-relaxed">
-                    Kirim pesan WhatsApp dari HP ke nomor bisnis Anda untuk menguji percakapan realtime.
-                  </p>
-                </div>
-                <div className="bg-zinc-950/80 p-3 rounded-xl border border-zinc-800 text-left text-[11px] text-zinc-400 space-y-1">
-                  <div className="font-semibold text-emerald-400">💡 Cara Tes:</div>
-                  <div>1. Buka WA di HP Anda</div>
-                  <div>2. Chat ke nomor bisnis Anda</div>
-                  <div>3. Pesan akan muncul di sini!</div>
-                </div>
+                <h4 className="text-xs font-bold text-zinc-300">Tidak Ada Percakapan</h4>
+                <p className="text-[11px] text-zinc-500 leading-relaxed">
+                  Kirim pesan WhatsApp ke nomor bisnis Anda untuk memulai percakapan.
+                </p>
               </div>
             ) : (
               filteredContacts.map((contact) => {
@@ -255,39 +307,35 @@ export default function InboxPage() {
                   <button
                     key={`${contact.customer_id}_${contact.contact_phone}`}
                     onClick={() => setSelectedContact(contact)}
-                    className={`w-full p-3 text-left flex items-start gap-3 transition-colors ${
-                      isSelected ? 'bg-zinc-800/80 border-l-4 border-emerald-500' : 'hover:bg-zinc-800/40'
+                    className={`w-full p-3 text-left flex items-start gap-2.5 transition-colors ${
+                      isSelected ? 'bg-zinc-800/90 border-l-4 border-emerald-500' : 'hover:bg-zinc-800/40'
                     }`}
                   >
-                    <div className="w-10 h-10 bg-zinc-800 rounded-full flex items-center justify-center font-bold text-sm text-white shrink-0 border border-zinc-700">
+                    <div className="w-9 h-9 bg-emerald-600/30 text-emerald-300 rounded-full flex items-center justify-center font-bold text-xs shrink-0 border border-emerald-500/30 shadow">
                       {(contact.contact_name || contact.contact_phone)[0]?.toUpperCase() || '?'}
                     </div>
 
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between gap-1">
-                        <span className="font-semibold text-sm truncate text-white">
+                        <span className="font-bold text-xs truncate text-white">
                           {contact.contact_name || contact.contact_phone}
                         </span>
-                        <span className="text-[10px] text-zinc-500 shrink-0">
+                        <span className="text-[10px] text-zinc-500 shrink-0 font-mono">
                           {new Date(contact.last_message_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
                         </span>
                       </div>
 
-                      <div className="text-xs text-zinc-400 truncate mt-0.5">
+                      <div className="text-[11px] text-zinc-400 truncate mt-0.5">
                         {contact.last_message || 'Pesan terkirim'}
                       </div>
 
-                      <div className="flex items-center justify-between mt-1.5 text-[10px]">
-                        <span className="bg-zinc-800 text-zinc-400 px-2 py-0.5 rounded-md border border-zinc-700/60 truncate max-w-[140px]">
-                          {contact.customer_name}
-                        </span>
-                        
+                      <div className="flex items-center justify-end mt-1 text-[10px]">
                         {windowLeft ? (
-                          <span className="text-emerald-400 font-medium bg-emerald-500/10 px-1.5 py-0.5 rounded">
-                            ✅ 24h ({windowLeft})
+                          <span className="text-emerald-400 font-medium bg-emerald-500/10 border border-emerald-500/20 px-1.5 py-0.5 rounded">
+                            ● Terbuka ({windowLeft})
                           </span>
                         ) : (
-                          <span className="text-amber-500 font-medium bg-amber-500/10 px-1.5 py-0.5 rounded">
+                          <span className="text-amber-400 font-medium bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 rounded">
                             ⏰ Closed
                           </span>
                         )}
@@ -300,45 +348,68 @@ export default function InboxPage() {
           </div>
         </div>
 
-        {/* Right Column: Chat Thread View */}
+        {/* COLUMN 2: Middle Active Chat Thread */}
         {selectedContact ? (
-          <div className="flex-1 flex flex-col min-h-0 bg-zinc-950/30">
+          <div className={`flex-1 flex flex-col min-w-0 min-h-0 bg-[#0b141a] ${!selectedContact ? 'hidden md:flex' : 'flex'}`}>
             
-            {/* Thread Header */}
-            <div className="p-4 border-b border-zinc-800 flex items-center justify-between bg-zinc-900/40">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-zinc-800 rounded-full flex items-center justify-center font-bold text-sm text-white border border-zinc-700">
+            {/* Thread Header (Clean 2-Line Design, Zero Tenant Labels, Zero Duplicate Phone) */}
+            <div className="p-3 border-b border-zinc-800 bg-[#202c33] shrink-0 flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                <button
+                  onClick={() => setSelectedContact(null)}
+                  className="md:hidden p-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg text-xs shrink-0"
+                  title="Kembali"
+                >
+                  ←
+                </button>
+
+                <div className="w-10 h-10 bg-emerald-600 text-white rounded-full flex items-center justify-center font-bold text-sm border border-emerald-400/40 shrink-0 shadow">
                   {(selectedContact.contact_name || selectedContact.contact_phone)[0]?.toUpperCase() || '?'}
                 </div>
-                <div>
-                  <h2 className="font-semibold text-sm text-white flex items-center gap-2">
-                    {selectedContact.contact_name || selectedContact.contact_phone}
-                    <span className="text-xs text-zinc-400 font-mono">({selectedContact.contact_phone})</span>
-                  </h2>
-                  <p className="text-xs text-zinc-500">
-                    Customer: <span className="text-zinc-300 font-medium">{selectedContact.customer_name}</span>
-                  </p>
+
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <h2 className="font-bold text-sm text-white truncate leading-tight">
+                      {selectedContact.contact_name || selectedContact.contact_phone}
+                    </h2>
+                    {selectedContact.contact_name && selectedContact.contact_name !== selectedContact.contact_phone && (
+                      <span className="text-xs text-zinc-400 font-mono hidden sm:inline shrink-0">
+                        ({selectedContact.contact_phone})
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-2 text-[11px] mt-0.5">
+                    {getWindowTimeLeft(selectedContact.last_inbound_at) ? (
+                      <span className="text-emerald-400 font-semibold truncate">
+                        ✅ 24j Terbuka ({getWindowTimeLeft(selectedContact.last_inbound_at)} tersisa)
+                      </span>
+                    ) : (
+                      <span className="text-amber-400 font-semibold truncate">
+                        ⏰ Jendela 24j Closed
+                      </span>
+                    )}
+                  </div>
                 </div>
               </div>
 
-              {/* 24h Window Badge */}
-              <div className="text-xs">
-                {getWindowTimeLeft(selectedContact.last_inbound_at) ? (
-                  <span className="bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-3 py-1 rounded-full font-medium">
-                    ✅ Jendela 24j Terbuka ({getWindowTimeLeft(selectedContact.last_inbound_at)} tersisa)
-                  </span>
-                ) : (
-                  <span className="bg-amber-500/20 text-amber-400 border border-amber-500/30 px-3 py-1 rounded-full font-medium">
-                    ⏰ Jendela 24j Tertutup (Gunakan Template)
-                  </span>
-                )}
-              </div>
+              {/* Right: Toggle Detail Panel Button */}
+              <button
+                onClick={() => setShowRightPanel(p => !p)}
+                className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition flex items-center gap-1.5 shrink-0 ${
+                  showRightPanel ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' : 'bg-zinc-800 text-zinc-300 border-zinc-700 hover:bg-zinc-700'
+                }`}
+                title="Tampilkan Detail Pelanggan & Lead"
+              >
+                <span>👤</span>
+                <span className="hidden sm:inline">{showRightPanel ? 'Sembunyikan Detail' : 'Detail'}</span>
+              </button>
             </div>
 
-            {/* Chat Bubble Container */}
-            <div className="flex-1 p-4 overflow-y-auto space-y-3">
+            {/* WhatsApp Canvas Chat Thread */}
+            <div className="flex-1 p-3 sm:p-4 overflow-y-auto space-y-3 bg-[radial-gradient(#1f2c34_1px,transparent_1px)] [background-size:16px_16px]">
               {loadingThread ? (
-                <div className="text-center text-zinc-500 text-sm py-8">Memuat pesan...</div>
+                <div className="text-center text-zinc-400 text-xs py-8">Memuat riwayat percakapan...</div>
               ) : messages.length === 0 ? (
                 <div className="text-center text-zinc-500 text-xs py-8">Belum ada riwayat pesan</div>
               ) : (
@@ -350,18 +421,22 @@ export default function InboxPage() {
                       className={`flex flex-col ${isInbound ? 'items-start' : 'items-end'}`}
                     >
                       <div
-                        className={`max-w-md rounded-2xl px-4 py-2.5 text-sm ${
+                        className={`max-w-[85%] sm:max-w-md rounded-2xl px-4 py-2.5 text-xs shadow-md whitespace-pre-wrap leading-relaxed break-words overflow-hidden ${
                           isInbound
-                            ? 'bg-zinc-800 text-zinc-100 rounded-tl-none border border-zinc-700/50'
-                            : 'bg-emerald-600/30 text-emerald-100 rounded-tr-none border border-emerald-500/30'
+                            ? 'bg-[#202c33] text-zinc-100 rounded-tl-none border border-zinc-700/40'
+                            : 'bg-[#005c4b] text-zinc-100 rounded-tr-none border border-emerald-500/30'
                         }`}
                       >
-                        <p className="whitespace-pre-wrap leading-relaxed">{msg.content}</p>
-                        <div className="flex items-center justify-end gap-1.5 mt-1 text-[10px] opacity-60">
+                        <div className="break-words">{renderWhatsAppText(msg.content)}</div>
+                        <div
+                          className={`text-[10px] text-right mt-1.5 flex items-center justify-end gap-1 ${
+                            isInbound ? 'text-zinc-400' : 'text-emerald-200/80'
+                          }`}
+                        >
                           <span>{new Date(msg.created_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}</span>
                           {!isInbound && (
-                            <span>
-                              {msg.status === 'delivered' ? '✓✓' : msg.status === 'sent' ? '✓' : ''}
+                            <span className="text-emerald-300 font-bold">
+                              {msg.status === 'delivered' || msg.status === 'read' ? '✓✓' : '✓'}
                             </span>
                           )}
                         </div>
@@ -375,45 +450,145 @@ export default function InboxPage() {
 
             {/* Error Banner */}
             {errorMsg && (
-              <div className="px-4 py-2 bg-red-500/10 border-t border-red-500/20 text-red-400 text-xs flex items-center justify-between">
+              <div className="px-4 py-2 bg-red-500/10 border-t border-red-500/20 text-red-400 text-xs flex items-center justify-between shrink-0">
                 <span>⚠️ {errorMsg}</span>
                 <button onClick={() => setErrorMsg(null)} className="hover:text-white">✕</button>
               </div>
             )}
 
-            {/* Reply Input Box */}
-            <form onSubmit={handleSendReply} className="p-3 border-t border-zinc-800 bg-zinc-900/60 flex gap-2 items-center">
-              <input
-                type="text"
+            {/* Reply Bar */}
+            <form onSubmit={handleSendReply} className="p-2.5 sm:p-3 border-t border-[#222d34] bg-[#202c33] flex items-center gap-2 shrink-0">
+              <textarea
+                value={replyText}
+                onChange={(e) => setReplyText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault()
+                    handleSendReply()
+                  }
+                }}
+                rows={1}
                 placeholder={
                   getWindowTimeLeft(selectedContact.last_inbound_at)
-                    ? 'Ketik balasan langsung...'
+                    ? 'Ketik balasan langsung (Enter untuk kirim, Shift+Enter untuk baris baru)...'
                     : 'Jendela 24j tertutup. Pelanggan harus membalas dulu...'
                 }
                 disabled={!getWindowTimeLeft(selectedContact.last_inbound_at) || sendingReply}
-                value={replyText}
-                onChange={(e) => setReplyText(e.target.value)}
-                className="flex-1 bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2.5 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-zinc-700 disabled:opacity-50 font-sans"
+                className="flex-1 bg-[#111b21] border border-zinc-700/60 rounded-xl px-3.5 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-500 disabled:opacity-50 font-sans resize-none max-h-24 leading-relaxed"
               />
               <button
                 type="submit"
                 disabled={!replyText.trim() || sendingReply || !getWindowTimeLeft(selectedContact.last_inbound_at)}
-                className="bg-emerald-500 text-zinc-950 font-bold px-4 py-2.5 rounded-xl text-xs hover:bg-emerald-400 transition disabled:opacity-50 shrink-0"
+                className="bg-emerald-500 text-zinc-950 font-bold px-3.5 py-2 rounded-xl text-xs hover:bg-emerald-400 transition disabled:opacity-40 shrink-0 shadow flex items-center gap-1"
               >
-                {sendingReply ? 'Mengirim...' : 'Kirim Balasan'}
+                <span>{sendingReply ? 'Mengirim...' : 'Kirim'}</span>
+                <span>🚀</span>
               </button>
             </form>
 
           </div>
         ) : (
-          <div className="flex-1 flex flex-col items-center justify-center p-8 text-center bg-zinc-950/20">
-            <div className="w-16 h-16 bg-zinc-800/80 text-zinc-300 rounded-3xl flex items-center justify-center text-3xl mb-4 border border-zinc-700 shadow-lg">
+          <div className="flex-1 flex flex-col items-center justify-center p-8 text-center bg-[#0b141a] hidden md:flex">
+            <div className="w-16 h-16 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-3xl flex items-center justify-center text-3xl mb-4 shadow-lg">
               💬
             </div>
             <h3 className="text-lg font-bold text-white mb-1">Pilih Percakapan</h3>
-            <p className="text-zinc-500 text-xs max-w-sm leading-relaxed">
-              Pilih kontak dari daftar di sebelah kiri untuk melihat riwayat percakapan dan mengirim balasan secara live.
+            <p className="text-zinc-400 text-xs max-w-sm leading-relaxed">
+              Pilih kontak dari daftar di sebelah kiri untuk melihat riwayat percakapan realtime dan mengirim balasan via WhatsApp KirimDev API.
             </p>
+          </div>
+        )}
+
+        {/* COLUMN 3: Right Customer & Lead Detail Sidebar (Clean Single-Tenant Panel) */}
+        {selectedContact && showRightPanel && (
+          <div className="w-80 border-l border-zinc-800 bg-[#111b21] flex flex-col shrink-0 overflow-y-auto">
+            {/* Panel Header */}
+            <div className="p-3.5 border-b border-zinc-800 text-xs font-bold text-white flex items-center justify-between bg-[#202c33]">
+              <span>👤 Pelanggan & Lead Info</span>
+              <button onClick={() => setShowRightPanel(false)} className="text-zinc-400 hover:text-white p-1">✕</button>
+            </div>
+
+            {/* Profile Avatar Card */}
+            <div className="p-4 text-center border-b border-zinc-800 space-y-2 bg-zinc-900/40">
+              <div className="w-14 h-14 bg-gradient-to-tr from-emerald-600 to-teal-400 text-zinc-950 font-black text-lg rounded-full flex items-center justify-center mx-auto shadow-lg shadow-emerald-500/20 border-2 border-emerald-400/40">
+                {(selectedContact.contact_name || selectedContact.contact_phone)[0]?.toUpperCase() || 'P'}
+              </div>
+              <div>
+                <h3 className="font-bold text-white text-sm leading-tight truncate px-2">
+                  {selectedContact.contact_name || 'Pelanggan WhatsApp'}
+                </h3>
+                <p className="text-xs font-mono text-emerald-400 mt-0.5">{selectedContact.contact_phone}</p>
+              </div>
+
+              <div className="pt-1 flex justify-center">
+                <span className="text-[10px] font-semibold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 px-2.5 py-0.5 rounded-full">
+                  Status: {activeLead?.status || 'Inquiry'}
+                </span>
+              </div>
+            </div>
+
+            {/* Extracted Lead Data (KirimDev Lead Collector Inspector) */}
+            <div className="p-3.5 space-y-4">
+              <div>
+                <h4 className="text-xs font-bold text-zinc-300 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                  <span>📊</span> Data Form Lead Terkumpul
+                </h4>
+
+                {activeLead ? (
+                  <div className="bg-zinc-900/90 border border-zinc-800 rounded-xl p-3 space-y-2 text-xs">
+                    {activeLead.package && (
+                      <div className="pb-2 border-b border-zinc-800 flex justify-between items-center gap-2">
+                        <span className="text-zinc-400 shrink-0">Paket Rekomendasi:</span>
+                        <span className="font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20 truncate">{activeLead.package}</span>
+                      </div>
+                    )}
+
+                    {(() => {
+                      const dataObj = typeof activeLead.data_json === 'object' && activeLead.data_json !== null
+                        ? activeLead.data_json as Record<string, string>
+                        : (() => { try { return JSON.parse(activeLead.data_json as string || '{}') } catch { return {} } })()
+
+                      const entries = Object.entries(dataObj).filter(([k]) => !k.startsWith('_'))
+                      if (entries.length === 0) {
+                        return <div className="text-zinc-500 italic text-[11px]">Belum ada data pertanyaan terisi</div>
+                      }
+
+                      return entries.map(([key, val]) => (
+                        <div key={key} className="flex justify-between items-center text-xs gap-2">
+                          <span className="text-zinc-400 capitalize font-medium shrink-0">{key.replace(/_/g, ' ')}:</span>
+                          <span className="font-semibold text-white bg-zinc-800/80 px-2 py-0.5 rounded text-[11px] border border-zinc-700/60 truncate max-w-[130px]">
+                            {String(val || '')}
+                          </span>
+                        </div>
+                      ))
+                    })()}
+                  </div>
+                ) : (
+                  <div className="p-4 border border-dashed border-zinc-800 rounded-xl text-center text-xs text-zinc-500">
+                    Belum ada record data lead terkumpul.
+                  </div>
+                )}
+              </div>
+
+              {/* Direct Link to Leads Page & Reset Lead Button */}
+              <div className="pt-1 space-y-2">
+                <Link
+                  href="/dashboard/leads"
+                  className="w-full bg-zinc-800 hover:bg-zinc-700 text-white font-semibold py-2 rounded-xl text-xs transition border border-zinc-700 text-center block"
+                >
+                  📊 Kelola di Data Leads
+                </Link>
+
+                {activeLead && (
+                  <button
+                    onClick={handleDeleteActiveLead}
+                    className="w-full bg-red-500/10 hover:bg-red-500/20 text-red-400 font-semibold py-2 rounded-xl text-xs transition border border-red-500/20 text-center block"
+                  >
+                    🗑️ Reset Lead (Tes Ulang Bot)
+                  </button>
+                )}
+              </div>
+            </div>
           </div>
         )}
 

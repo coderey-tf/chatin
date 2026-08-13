@@ -14,7 +14,7 @@ export async function PATCH(
       status: body.status,
       contact_name: body.contact_name,
       package: body.package,
-      data: body.data,
+      data_json: body.data,
     })
 
     return NextResponse.json({ success: true })

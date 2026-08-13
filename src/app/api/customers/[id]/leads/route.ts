@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { listLeads, upsertLead, parseLead } from '@/lib/db'
+import { listLeads, upsertLead } from '@/lib/db'
 
 // GET /api/customers/[id]/leads — list all leads (with parsed data)
 export async function GET(
@@ -9,7 +9,10 @@ export async function GET(
   try {
     const { id } = await params
     const rows = await listLeads(id)
-    const leads = rows.map(parseLead)
+    const leads = rows.map(r => ({
+      ...r,
+      data: r.data_json || {},
+    }))
     return NextResponse.json({ data: leads, count: leads.length })
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : 'Failed' }, { status: 500 })
@@ -43,7 +46,7 @@ export async function POST(
       if (body[key] && typeof body[key] === 'string') data[key] = body[key]
     }
 
-    const leadId = await upsertLead({
+    const lead = await upsertLead({
       customer_id: id,
       contact_phone: body.contact_phone,
       contact_name: body.contact_name || body.name,
@@ -53,7 +56,7 @@ export async function POST(
       source: body.source,
     })
 
-    return NextResponse.json({ data: { id: leadId } })
+    return NextResponse.json({ data: lead })
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : 'Failed' }, { status: 500 })
   }

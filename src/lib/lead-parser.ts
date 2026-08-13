@@ -1,11 +1,11 @@
 /**
- * lead-parser.ts — Template-driven lead data extractor
+ * lead-parser.ts — Template-driven lead data extractor with Typo Detection & Fuzzy Matching
  *
  * Works with ANY industry: the BotField[] config tells it what to look for.
  * Users define fields via industry templates (wedding_decor, rental, clinic, shop, generic).
  *
  * Two field types affect extraction:
- *  - 'keyword': matches keywords in text → maps to a specific value
+ *  - 'keyword': matches keywords in text (with Levenshtein fuzzy typo tolerance)
  *    e.g. field "event_type" with keywords: { Wedding: ["nikah", "wedding"], Engagement: ["lamaran"] }
  *  - 'text': extracts freeform text using regex patterns
  *  - 'date': extracts Indonesian dates
@@ -39,12 +39,12 @@ const GREETING_WORDS = [
 ]
 
 const NAME_PATTERNS = [
-  // 1. Nama: Reynaldi OR nama saya Budi OR nama: Budi
-  /(?:^|\n)(?:1[.)]\s*|nama\s*[:=-]\s*)([A-Za-z][A-Za-z\s'-]{1,30})/i,
-  /nama\s*(?:saya|aku)?\s*:?\s+([A-Za-z][A-Za-z\s'-]{1,25})/i,
+  // 1. Nama: Reynaldi (stop at end of line \n or \r)
+  /(?:^|\n)(?:1[.)]\s*|nama\s*[:=-]\s*)([^\n\r]{1,40})/i,
+  /nama\s*(?:saya|aku)?\s*:?\s+([^\n\r]{1,40})/i,
   // 2. saya + name (first capitalized word after "saya/aku")
-  /(?:saya|aku|namaku|gw|gue)\s+([A-Z][a-zA-Z'-]{1,25})/,
-  // 3. with/perkenalkan + name
+  /(?:saya|aku|namaku|gw|gue)\s+([A-Z][a-zA-Z'-]{1,25})/i,
+  // 3. dengan/perkenalkan + name
   /(?:dengan|perkenalkan)\s+([A-Z][a-zA-Z'-]{1,25})/i,
 ]
 
@@ -52,6 +52,9 @@ const NAME_STOP_WORDS = [
   'mau', 'tanya', 'buka', 'booking', 'saya', 'adalah',
   'untuk', 'dengan', 'yang', 'dari', 'ke', 'di', 'dan', 'atau', 'ini', 'itu',
   'bagaimana', 'gimana', 'kenapa', 'kapan', 'dimana', 'siapa',
+  'tanggal', 'tgl', 'jenis', 'acara', 'lokasi', 'tempat', 'venue',
+  'alamat', 'hp', 'wa', 'telepon', 'email', 'nomor', 'pesanan',
+  'budget', 'harga', 'pembayaran', 'keterangan', 'catatan', 'item', 'produk'
 ]
 
 const LOCATIONS = [
@@ -62,6 +65,55 @@ const LOCATIONS = [
   'pondok indah', 'kelapa gading', 'pik', 'kemang', 'cilandak',
   'menteng', 'senayan', 'kuningan', 'sudirman',
 ]
+
+// ─── Lightweight Levenshtein Distance for Typo Detection ───
+
+function levenshteinDistance(a: string, b: string): number {
+  if (a === b) return 0
+  if (a.length === 0) return b.length
+  if (b.length === 0) return a.length
+
+  const matrix: number[][] = []
+  for (let i = 0; i <= a.length; i++) {
+    matrix[i] = [i]
+  }
+  for (let j = 0; j <= b.length; j++) {
+    matrix[0][j] = j
+  }
+
+  for (let i = 1; i <= a.length; i++) {
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1
+      matrix[i][j] = Math.min(
+        matrix[i - 1][j] + 1,       // deletion
+        matrix[i][j - 1] + 1,       // insertion
+        matrix[i - 1][j - 1] + cost // substitution
+      )
+    }
+  }
+  return matrix[a.length][b.length]
+}
+
+/**
+ * Fuzzy check if text word matches target keyword (tolerating typos)
+ * e.g. "Engagnment" -> matches "Engagement"
+ */
+function isFuzzyMatch(textWord: string, targetKeyword: string): boolean {
+  const w = textWord.toLowerCase().trim()
+  const k = targetKeyword.toLowerCase().trim()
+
+  if (w === k || w.includes(k) || k.includes(w)) return true
+
+  // Apply Levenshtein fuzzy matching for words >= 4 characters
+  if (w.length >= 4 && k.length >= 4) {
+    const maxLen = Math.max(w.length, k.length)
+    const dist = levenshteinDistance(w, k)
+    // Allow up to 2 typos for words >= 6 chars, or 1 typo for words 4-5 chars
+    const maxAllowedDist = maxLen >= 6 ? 2 : 1
+    if (dist <= maxAllowedDist) return true
+  }
+  return false
+}
 
 // ─── Core extraction ───
 
@@ -80,9 +132,20 @@ function extractFieldValue(text: string, field: BotField): string | undefined {
   switch (field.type) {
     case 'keyword': {
       if (!field.keywords) return undefined
+      
+      // Tokenize message into individual words for typo matching
+      const words = lower.split(/[\s:,\-._/\n\r]+/).filter(w => w.length >= 3)
+
       for (const [value, keywords] of Object.entries(field.keywords)) {
+        // 1. Direct substring match
         if (keywords.some(k => lower.includes(k.toLowerCase()))) {
           return value
+        }
+        // 2. Typo-tolerant Fuzzy match word-by-word against keywords
+        for (const kw of keywords) {
+          if (words.some(word => isFuzzyMatch(word, kw))) {
+            return value
+          }
         }
       }
       return undefined
@@ -117,22 +180,24 @@ function extractFieldValue(text: string, field: BotField): string | undefined {
         for (const pat of NAME_PATTERNS) {
           const m = text.match(pat)
           if (m) {
-            const raw = m[1].trim()
-            // Take only the first word or first two words (not the whole greedy match)
-            const firstWord = raw.split(/[\s,]+/)[0]
-            const twoWords = raw.split(/[\s,]+/, 2).join(' ')
-            // Check both 1-word and 2-word versions
-            const candidates = [twoWords, firstWord].filter(c => c.length >= 2)
-            for (const candidate of candidates) {
-              if (!NAME_STOP_WORDS.some(sw => candidate.toLowerCase() === sw)) {
-                return candidate.replace(/\b\w/g, c => c.toUpperCase())
-              }
+            // Truncate at first newline or colon or comma
+            let raw = m[1].split(/[\n\r:,]/)[0].trim()
+
+            // Filter out words that match STOP_WORDS (e.g. if raw captured "Reynaldi Tanggal", drop "Tanggal")
+            const words = raw.split(/\s+/).filter(w => {
+              const cleanW = w.toLowerCase().replace(/[^a-z]/g, '')
+              return cleanW.length >= 2 && !NAME_STOP_WORDS.includes(cleanW)
+            })
+
+            if (words.length > 0) {
+              const cleanName = words.slice(0, 3).join(' ')
+              return cleanName.replace(/\b\w/g, c => c.toUpperCase())
             }
           }
         }
         return undefined
       }
-      // Generic text: try label match pattern, or return raw text if short
+      // Generic text: return raw line if short
       if (text.length <= 80) return text.trim()
       return undefined
     }
@@ -144,7 +209,6 @@ function extractFieldValue(text: string, field: BotField): string | undefined {
 
 /**
  * Check if a message is a pure greeting (no data content).
- * Uses all fields to know what context words to look for.
  */
 export function isGreeting(text: string, fields: BotField[]): boolean {
   const lower = text.toLowerCase().trim()
@@ -178,21 +242,20 @@ export function extractFromText(text: string, fields: BotField[]): Record<string
 
 /**
  * Accumulate lead data from conversation history + existing DB data.
- * Merges all user messages, then current message (highest priority).
  */
 export function accumulateLeadData(
-  messages: Array<{ role: string; content: string }>,
+  history: Array<{ role: string; content: string }>,
   currentMessage: string,
   fields: BotField[],
   existingData: Record<string, string> = {},
 ): LeadData {
   const accumulated: Record<string, string> = { ...existingData }
 
-  // Scan history
-  for (const msg of messages) {
-    if (msg.role === 'user' && msg.content) {
-      const partial = extractFromText(msg.content, fields)
-      for (const [k, v] of Object.entries(partial)) {
+  // Extract backwards from history (older to newer)
+  for (const item of history) {
+    if (item.role === 'user' && item.content) {
+      const extracted = extractFromText(item.content, fields)
+      for (const [k, v] of Object.entries(extracted)) {
         if (v) accumulated[k] = v
       }
     }
@@ -207,7 +270,6 @@ export function accumulateLeadData(
   // Apply defaults for missing fields that have default_value
   for (const field of fields) {
     if (!accumulated[field.key] && field.default_value) {
-      // only fill default if at least "name" and one other required field is present
       const nameKey = fields.find(f => f.key === 'name' || f.key === 'contact_name')?.key
       const hasName = nameKey ? !!accumulated[nameKey] : true
       const requiredKeys = fields.filter(f => f.required && f.key !== nameKey).map(f => f.key)

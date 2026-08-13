@@ -21,16 +21,16 @@ export default async function DashboardLayout({
     redirect('/login?redirect=/dashboard')
   }
 
-  // Check onboarding status
+  // Check onboarding status scoped to user ID
   const profile = await getUserProfile(user.id)
-  const customers = await listCustomers()
+  const userCustomers = await listCustomers(undefined, user.id)
 
-  if (customers.length > 0) {
+  if (userCustomers.length > 0) {
     // If user already has customer(s), ensure is_onboarded is true so they stay logged in
     if (!profile || profile.is_onboarded === false) {
       await setOnboardedStatus(user.id, true)
     }
-  } else if (profile && profile.is_onboarded === false) {
+  } else if (!profile || profile.is_onboarded === false) {
     // Only redirect to /onboarding if user has 0 customers and hasn't onboarded
     redirect('/onboarding')
   }

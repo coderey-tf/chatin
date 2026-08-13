@@ -41,9 +41,10 @@ export async function POST(request: Request) {
     const presetKey = (industryPreset || 'generic') as keyof typeof INDUSTRY_TEMPLATES
     const preset = INDUSTRY_TEMPLATES[presetKey] || INDUSTRY_TEMPLATES.generic
 
-    // 1. Create Customer in local DB
+    // 1. Create Customer linked to logged in user ID
     await upsertCustomer({
       id: customerId,
+      user_id: user.id,
       name: businessName.trim(),
       email: email || user.email || null,
       status: 'active',
