@@ -388,3 +388,53 @@ Webhook POST → parseHeader(x-kirim-event) + parseBody(entry[0].changes[0])
 | RangeError: Input buffers must have same byte length | HMAC wrapped in try/catch, non-fatal |
 | payload: {} empty in webhook_events | Store full entry body as payload |
 | Live Inbox not showing | Ensure Supabase Realtime enabled for message_logs table |
+## Webhook Status Updates + Test Mode (v2.4.0)
+
+### Status Updates (Auto-processing from Meta)
+
+Meta sends status updates (sent, delivered, read, failed) as separate events with:
+```json
+{
+  "entry": [{
+    "changes": [{
+      "field": "messages",
+      "value": {
+        "statuses": [{"id": "wamid...", "status": "delivered"}]
+      }
+    }]
+  }]
+}
+```
+The webhook automatically updates message_logs.status for matching id or wamid.
+
+### Live Test Mode (Whitelist)
+
+Each customer's bot_configs.config_json supports:
+```json
+{
+  "test_mode_enabled": true,
+  "test_phone_numbers": "+628123456789, 0851-5626-6871"
+}
+```
+- When test_mode_enabled true, bot ONLY responds to whitelisted numbers
+- All other inbound ignored (logged as "ignoring non-tester inbound")
+- Phone numbers normalized to 62 prefix, matched via suffix
+- Use during development to prevent real customers from hitting unfinished bot logic
+
+### Dashboard UI Components
+
+| Component | File | Purpose |
+|-----------|------|---------|
+| ConfirmModal | src/components/ConfirmModal.tsx | Reusable dark-mode confirmation dialog |
+| Toast | src/components/Toast.tsx | Sonner toast notification provider |
+| CustomerDetailClient | src/app/dashboard/customers/[id]/CustomerDetailClient.tsx | Client-side customer detail view |
+| BotSettingsClient | src/app/dashboard/customers/[id]/bot/BotSettingsClient.tsx | Client-side bot config editor |
+| LeadsClient | src/app/dashboard/customers/[id]/leads/LeadsClient.tsx | Client-side leads management |
+| Profile | src/app/dashboard/profile/page.tsx | User profile page |
+
+### Live Inbox (3-Column KirimDev-Inspired Layout)
+
+Redesigned with:
+- Left: Contact list + status pills (Semua/Terbuka/Closed) + search
+- Middle: Chat thread with WhatsApp-style bubbles (#005c4b/#202c33), markdown parser, multiline Shift/Enter reply
+- Right: Lead detail sidebar (customer profile card + captured form fields in real-time)

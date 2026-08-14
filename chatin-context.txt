@@ -84,3 +84,28 @@ HMAC verification: wrapped in try/catch (non-fatal on failure, logs warning only
 - src/app/dashboard/bot/page.tsx — Bot settings + Interactive WhatsApp Sandbox Chat Simulator
 
 Read AGENTS.md for full technical docs
+
+## Webhook Changes (v2.4.0)
+- **Status updates**: Meta status events (sent/delivered/read/failed) now update message_logs automatically
+  Entry format: entry[0].changes[0].value.statuses[{id, status}]
+- **Test Mode Whitelist**: bot_configs.config_json supports:
+  test_mode_enabled: boolean — if true, bot only responds to whitelisted phones
+  test_phone_numbers: string — comma-separated list of allowed phone numbers
+  Normalizes to 62 prefix, checks suffix match
+- **Template fallbacks**: INDUSTRY_TEMPLATES imported as fallback if bot_config fields/templates incomplete
+- **Lead parser**: Name extraction priority updated (first match from multiple patterns)
+
+## Dashboard Changes
+- Inbox: 3-column KirimDev-inspired layout (left=contacts, middle=chat thread, right=lead detail sidebar)
+- ConfirmModal + Toast components (src/components/)
+- Client components extracted: CustomerDetailClient, BotSettingsClient, LeadsClient
+- New /dashboard/profile page
+- Global dark scrollbars, Sonner toast notifications
+
+## Key Files (updated)
+- src/components/ConfirmModal.tsx — reusable confirm dialog
+- src/components/Toast.tsx — Sonner toast integration
+- src/app/dashboard/customers/[id]/CustomerDetailClient.tsx
+- src/app/dashboard/customers/[id]/bot/BotSettingsClient.tsx
+- src/app/dashboard/customers/[id]/leads/LeadsClient.tsx
+- src/app/dashboard/profile/page.tsx — user profile page
