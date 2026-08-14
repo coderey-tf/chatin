@@ -398,12 +398,24 @@ export interface InboxContact {
 export async function listInboxContacts(customerId?: string, userId?: string): Promise<InboxContact[]> {
   const sb = createAdminClient()
   
+  let targetCustomerIds: string[] = []
+  if (customerId) {
+    targetCustomerIds = [customerId]
+  } else if (userId) {
+    const userCusts = await listCustomers(undefined, userId)
+    targetCustomerIds = userCusts.map(c => c.id)
+    if (targetCustomerIds.length === 0) return []
+  }
+
   let query = sb
     .from('message_logs')
     .select('customer_id, contact_phone, content, created_at, direction, customers(name)')
     .order('created_at', { ascending: false })
 
-  if (customerId) query = query.eq('customer_id', customerId)
+  if (targetCustomerIds.length > 0) {
+    query = query.in('customer_id', targetCustomerIds)
+  }
+
   const { data, error } = await query
   if (error) throw new Error(`listInboxContacts error: ${error.message}`)
 
@@ -413,7 +425,12 @@ export async function listInboxContacts(customerId?: string, userId?: string): P
   const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000
 
   // We also fetch leads to get lead contact_name and last_inbound_at
-  const { data: leads } = await sb.from('leads').select('customer_id, contact_phone, contact_name, last_inbound_at')
+  let leadsQuery = sb.from('leads').select('customer_id, contact_phone, contact_name, last_inbound_at')
+  if (targetCustomerIds.length > 0) {
+    leadsQuery = leadsQuery.in('customer_id', targetCustomerIds)
+  }
+  const { data: leads } = await leadsQuery
+
   const leadMap = new Map<string, { contact_name: string | null; last_inbound_at: string | null }>()
   for (const l of leads || []) {
     leadMap.set(`${l.customer_id}_${l.contact_phone}`, {

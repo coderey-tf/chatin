@@ -316,6 +316,16 @@ Whenever code is pushed to branch `main`, GitHub Actions automatically:
 
 12. **Typing Mode Indicator**: Webhook auto-reply calls Meta WhatsApp API `action: { type: 'typing_on' }` with a 1-second delay prior to sending outbound text responses, simulating human typing behavior. Interactive Sandbox simulator in `/dashboard/bot` also renders animated typing bubble indicators (`sedang mengetik...`).
 
+13. **Custom Glassmorphic Dark Mode ConfirmModal**: Replaced native browser `confirm()` popups across the application (`/dashboard/inbox`, `/dashboard/leads`, `/dashboard/customers/[id]`) with a custom reusable glassmorphic dark mode modal component (`src/components/ConfirmModal.tsx`). Supports `danger`, `warning`, `info` variants, backdrop blur (`bg-black/75 backdrop-blur-sm`), custom icons, and button loading spinners.
+
+14. **Official shadcn/ui Sonner Toaster System**: Integrated `sonner@2.0.8` (official shadcn/ui Toast component) wrapped in `src/components/Toast.tsx` and `ToastProvider` in `DashboardLayout`. Provides instant, rich-colored, dark-theme toast notifications (`toast.success`, `toast.error`, `toast.info`, `toast.warning`) for all actions across the entire dashboard (saving bot config, sending WhatsApp replies, resetting leads, updating business phone, exporting CSV, archiving customers, etc.).
+
+15. **Strict Single-Tenant Isolation & Residu Cleanup**: Removed all remaining multi-tenant tenant-switcher dropdowns (e.g. `Tenant: Flowku` in `/dashboard/billing`) and multi-tenant filter buttons in `/dashboard/messages` (Audit Log Pesan). Scoped all database queries (`listInboxContacts`, `message_logs`, `leads`) strictly to the logged-in user's business customer ID (`user.id`).
+
+16. **Form-Extracted Name Priority & Template Unification**: Webhook receiver in `src/app/api/webhooks/kirimdev/route.ts` prioritizes form-extracted customer name (`dataObj['name']`) over Meta WhatsApp profile name (`inbound.waName`), and automatically merges database templates with `INDUSTRY_TEMPLATES` preset defaults to ensure 100% template consistency between the Interactive Sandbox Simulator and real WhatsApp auto-replies.
+
+17. **Ultra-Responsive 3-Column Live Inbox & Sleek Minimalist Dark Scrollbars**: Custom 6px dark minimalist scrollbar (`#27272a` thumb, rounded-full, hidden arrows) styled in `src/app/globals.css`. Column 3 (Pelanggan & Lead Info) renders as a Slide-Over Overlay Drawer on `< xl` screens with toggle button (`👤 Detail` / `✕ Tutup`), and 1-column layout with back button (`←`) on mobile (`< md`).
+
 ---
 
 ## Webhook Handling (v2.3.1 — Critical Detail)

@@ -59,8 +59,11 @@ HMAC verification: wrapped in try/catch (non-fatal on failure, logs warning only
 - Dynamic Pricelist Matcher: findMatchingPricelistLink in chat-engine.ts generates synonyms and conflict pairs dynamically from BotField[] config (scoring bonus +10, conflict penalty -15)
 - Interactive Sandbox: Live chat simulator in /dashboard/bot with scroller ref, Shift+Enter textarea, and correct user (right/green) vs bot (left/grey) bubbles
 - Live Testing Whitelist Mode: Toggle in /dashboard/bot + webhook check allowing bot auto-replies ONLY for whitelisted tester phone numbers (e.g. 085156266871)
-- Single-Tenant & Auto-Healing: Enforces max 1 tenant per user account, hiding + Add Customer UI and OPERATOR & MULTI-TENANT section from Sidebar, blocking POST /api/customers, and auto-linking orphan customer records via matching email in listCustomers
+- Single-Tenant & Auto-Healing: Enforces max 1 tenant per user account, hiding + Add Customer UI, removing multi-tenant selectors in /dashboard/billing and /dashboard/messages, blocking POST /api/customers, and auto-linking orphan customer records via matching email in listCustomers
 - Typing Mode Indicator: Action payload `action: { type: 'typing_on' }` sent via KirimDev/Meta API prior to auto-replies, plus animated typing indicator in Interactive Sandbox Simulator
+- Custom ConfirmModal: Replaced native browser `confirm()` with custom glassmorphic dark mode modal component (`src/components/ConfirmModal.tsx`) for destructive actions
+- Official shadcn/ui Sonner Toaster: Integrated `sonner@2.0.8` (`src/components/Toast.tsx`) top-right dark mode toast notifications across all dashboard actions
+- Ultra-Responsive Live Inbox & Sleek Scrollbar: Custom 6px dark scrollbars in `src/app/globals.css`, Column 3 Slide-Over Drawer on `< xl` screens, and 1-column mobile view with back button
 
 ## Key Files
 - src/lib/db.ts — All Supabase DB helpers (async, uses createAdminClient + auto-healing user_id link)
@@ -68,14 +71,16 @@ HMAC verification: wrapped in try/catch (non-fatal on failure, logs warning only
 - src/lib/lead-parser.ts — Field extraction (Levenshtein typo detection, line-bounded regex, dates, names)
 - src/lib/webhook-verify.ts — HMAC webhook signature verification (t=v1 format)
 - src/lib/kirimdev.ts — KirimDev SDK lazy initialization
+- src/components/ConfirmModal.tsx — Custom glassmorphic dark mode confirmation modal
+- src/components/Toast.tsx — Official shadcn/ui Sonner Toaster wrapper and toast exporter
 - src/lib/supabase/server.ts — Server-side Supabase client (@supabase/ssr)
 - src/lib/supabase/client.ts — Browser-side Supabase client
 - src/lib/supabase/admin.ts — Service-role admin client (bypasses RLS)
-- src/app/api/webhooks/kirimdev/route.ts — Webhook receiver + auto-reply (v2.3.1)
+- src/app/api/webhooks/kirimdev/route.ts — Webhook receiver + auto-reply (v2.3.1 with name priority & preset fallbacks)
 - src/app/api/chat/route.ts — Public chat endpoint
 - src/app/api/inbox/route.ts — Inbox contacts API
 - src/app/api/inbox/[phone]/route.ts — Thread + 24h reply API
-- src/app/dashboard/inbox/page.tsx — Live Conversation Inbox: 3-column KirimDev UI (/dashboard/inbox) with Realtime WS, status filters (Semua, Terbuka, Closed), WhatsApp Markdown parser (*bold* -> bold text), KirimDev green/grey bubbles, header badge alignment fix, and Customer/Lead detail right panel
+- src/app/dashboard/inbox/page.tsx — Live Conversation Inbox: 3-column KirimDev UI (/dashboard/inbox) with Realtime WS, status filters, WhatsApp Markdown parser (*bold* -> bold text), KirimDev green/grey bubbles, Slide-Over drawer on < xl, and responsive layout
 - src/app/dashboard/bot/page.tsx — Bot settings + Interactive WhatsApp Sandbox Chat Simulator
 
 Read AGENTS.md for full technical docs

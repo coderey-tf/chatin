@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { getUserProfile, listCustomers, setOnboardedStatus } from '@/lib/db'
 import { Sidebar } from './Sidebar'
+import { ToastProvider } from '@/components/Toast'
 
 export const metadata: Metadata = {
   title: 'Chatin — Multi-Tenant WhatsApp Business API Dashboard',
@@ -40,18 +41,20 @@ export default async function DashboardLayout({
   const avatarUrl = profile?.avatar_url || user?.user_metadata?.avatar_url || user?.user_metadata?.picture
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-zinc-100 font-sans antialiased selection:bg-emerald-500 selection:text-zinc-950">
-      
-      {/* Sidebar (Desktop + Mobile Drawer) */}
-      <Sidebar userEmail={userEmail} userName={userName} avatarUrl={avatarUrl} />
+    <ToastProvider>
+      <div className="min-h-screen bg-zinc-950 text-zinc-100 font-sans antialiased selection:bg-emerald-500 selection:text-zinc-950">
+        
+        {/* Sidebar (Desktop + Mobile Drawer) */}
+        <Sidebar userEmail={userEmail} userName={userName} avatarUrl={avatarUrl} />
 
-      {/* Main Content Area */}
-      <div className="lg:ml-64 flex flex-col min-h-screen">
-        <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl w-full mx-auto">
-          {children}
-        </main>
+        {/* Main Content Area */}
+        <div className="lg:ml-64 flex flex-col min-h-screen">
+          <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl w-full mx-auto">
+            {children}
+          </main>
+        </div>
+
       </div>
-
-    </div>
+    </ToastProvider>
   )
 }

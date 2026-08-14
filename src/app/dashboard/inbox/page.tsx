@@ -3,6 +3,8 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import Link from 'next/link'
+import ConfirmModal from '@/components/ConfirmModal'
+import { useToast } from '@/components/Toast'
 
 interface InboxContact {
   contact_phone: string
@@ -50,8 +52,9 @@ export default function InboxPage() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<'all' | 'open' | 'closed'>('all')
-  const [showRightPanel, setShowRightPanel] = useState<boolean>(true)
+  const [showRightPanel, setShowRightPanel] = useState<boolean>(false)
 
+  const toast = useToast()
   const chatBottomRef = useRef<HTMLDivElement>(null)
   const supabase = createClient()
 
@@ -156,28 +159,39 @@ export default function InboxPage() {
       }
 
       setReplyText('')
+      toast.success('Pesan balasan berhasil terkirim via WhatsApp API')
       fetchThread()
       fetchContacts()
     } catch (err) {
-      setErrorMsg(err instanceof Error ? err.message : 'Gagal mengirim balasan')
+      const msg = err instanceof Error ? err.message : 'Gagal mengirim balasan'
+      setErrorMsg(msg)
+      toast.error(msg)
     } finally {
       setSendingReply(false)
     }
   }
 
+  const [confirmResetOpen, setConfirmResetOpen] = useState(false)
+  const [resetLoading, setResetLoading] = useState(false)
+
   // Reset / Delete active lead to test bot flow again
-  const handleDeleteActiveLead = async () => {
+  const confirmDeleteActiveLead = async () => {
     if (!activeLead || !selectedContact) return
-    if (!confirm(`Reset data lead untuk ${selectedContact.contact_phone}? Bot WhatsApp akan dapat memproses pertanyaan dari awal lagi.`)) return
+    setResetLoading(true)
 
     try {
       await fetch(`/api/customers/${selectedContact.customer_id}/leads/${activeLead.id}`, {
         method: 'DELETE',
       })
       setActiveLead(null)
+      setConfirmResetOpen(false)
+      toast.success(`Data lead ${selectedContact.contact_phone} berhasil di-reset untuk tes ulang`)
       fetchThread()
     } catch {
-      alert('Gagal menghapus lead')
+      setErrorMsg('Gagal menghapus lead')
+      toast.error('Gagal mereset data lead')
+    } finally {
+      setResetLoading(false)
     }
   }
 
@@ -232,7 +246,7 @@ export default function InboxPage() {
       {/* Page Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 shrink-0">
         <div>
-          <h1 className="text-xl font-bold text-white tracking-tight flex items-center gap-2">
+          <h1 className="text-lg sm:text-xl font-bold text-white tracking-tight flex items-center gap-2">
             <span>💬</span> Live Conversation Inbox
             <span className="text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2.5 py-0.5 rounded-full">
               Realtime WS
@@ -248,7 +262,7 @@ export default function InboxPage() {
       <div className="flex-1 min-h-0 bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden flex shadow-2xl relative">
         
         {/* COLUMN 1: Left Contact List & Filters */}
-        <div className={`w-full md:w-72 border-r border-zinc-800 flex flex-col bg-zinc-900/80 shrink-0 ${selectedContact ? 'hidden md:flex' : 'flex'}`}>
+        <div className={`w-full md:w-64 lg:w-72 border-r border-zinc-800 flex flex-col bg-zinc-900/80 shrink-0 ${selectedContact ? 'hidden md:flex' : 'flex'}`}>
           
           {/* Search & Status Filters */}
           <div className="p-3 border-b border-zinc-800 space-y-2">
@@ -352,7 +366,7 @@ export default function InboxPage() {
         {selectedContact ? (
           <div className={`flex-1 flex flex-col min-w-0 min-h-0 bg-[#0b141a] ${!selectedContact ? 'hidden md:flex' : 'flex'}`}>
             
-            {/* Thread Header (Clean 2-Line Design, Zero Tenant Labels, Zero Duplicate Phone) */}
+            {/* Thread Header (Clean Responsive Design) */}
             <div className="p-3 border-b border-zinc-800 bg-[#202c33] shrink-0 flex items-center justify-between gap-2">
               <div className="flex items-center gap-2.5 min-w-0 flex-1">
                 <button
@@ -363,26 +377,26 @@ export default function InboxPage() {
                   ←
                 </button>
 
-                <div className="w-10 h-10 bg-emerald-600 text-white rounded-full flex items-center justify-center font-bold text-sm border border-emerald-400/40 shrink-0 shadow">
+                <div className="w-9 h-9 bg-emerald-600 text-white rounded-full flex items-center justify-center font-bold text-xs border border-emerald-400/40 shrink-0 shadow">
                   {(selectedContact.contact_name || selectedContact.contact_phone)[0]?.toUpperCase() || '?'}
                 </div>
 
                 <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <h2 className="font-bold text-sm text-white truncate leading-tight">
+                  <div className="flex items-center gap-1.5">
+                    <h2 className="font-bold text-xs sm:text-sm text-white truncate leading-tight">
                       {selectedContact.contact_name || selectedContact.contact_phone}
                     </h2>
                     {selectedContact.contact_name && selectedContact.contact_name !== selectedContact.contact_phone && (
-                      <span className="text-xs text-zinc-400 font-mono hidden sm:inline shrink-0">
+                      <span className="text-xs text-zinc-400 font-mono hidden lg:inline shrink-0">
                         ({selectedContact.contact_phone})
                       </span>
                     )}
                   </div>
 
-                  <div className="flex items-center gap-2 text-[11px] mt-0.5">
+                  <div className="flex items-center gap-2 text-[10px] sm:text-[11px] mt-0.5">
                     {getWindowTimeLeft(selectedContact.last_inbound_at) ? (
                       <span className="text-emerald-400 font-semibold truncate">
-                        ✅ 24j Terbuka ({getWindowTimeLeft(selectedContact.last_inbound_at)} tersisa)
+                        ✅ 24j Terbuka ({getWindowTimeLeft(selectedContact.last_inbound_at)})
                       </span>
                     ) : (
                       <span className="text-amber-400 font-semibold truncate">
@@ -396,13 +410,13 @@ export default function InboxPage() {
               {/* Right: Toggle Detail Panel Button */}
               <button
                 onClick={() => setShowRightPanel(p => !p)}
-                className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition flex items-center gap-1.5 shrink-0 ${
+                className={`px-2.5 py-1.5 rounded-xl text-xs font-semibold border transition flex items-center gap-1 shrink-0 ${
                   showRightPanel ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' : 'bg-zinc-800 text-zinc-300 border-zinc-700 hover:bg-zinc-700'
                 }`}
-                title="Tampilkan Detail Pelanggan & Lead"
+                title="Detail Pelanggan & Lead"
               >
                 <span>👤</span>
-                <span className="hidden sm:inline">{showRightPanel ? 'Sembunyikan Detail' : 'Detail'}</span>
+                <span className="hidden sm:inline">{showRightPanel ? 'Tutup' : 'Detail'}</span>
               </button>
             </div>
 
@@ -421,7 +435,7 @@ export default function InboxPage() {
                       className={`flex flex-col ${isInbound ? 'items-start' : 'items-end'}`}
                     >
                       <div
-                        className={`max-w-[85%] sm:max-w-md rounded-2xl px-4 py-2.5 text-xs shadow-md whitespace-pre-wrap leading-relaxed break-words overflow-hidden ${
+                        className={`max-w-[85%] sm:max-w-md rounded-2xl px-3.5 py-2 text-xs shadow-md whitespace-pre-wrap leading-relaxed break-words overflow-hidden ${
                           isInbound
                             ? 'bg-[#202c33] text-zinc-100 rounded-tl-none border border-zinc-700/40'
                             : 'bg-[#005c4b] text-zinc-100 rounded-tr-none border border-emerald-500/30'
@@ -499,9 +513,9 @@ export default function InboxPage() {
           </div>
         )}
 
-        {/* COLUMN 3: Right Customer & Lead Detail Sidebar (Clean Single-Tenant Panel) */}
+        {/* COLUMN 3: Right Customer & Lead Detail Sidebar (Responsive Drawer on < xl, Static on >= xl) */}
         {selectedContact && showRightPanel && (
-          <div className="w-80 border-l border-zinc-800 bg-[#111b21] flex flex-col shrink-0 overflow-y-auto">
+          <div className="w-80 max-w-[85vw] border-l border-zinc-800 bg-[#111b21] flex flex-col shrink-0 overflow-y-auto absolute right-0 top-0 bottom-0 z-30 shadow-2xl xl:static">
             {/* Panel Header */}
             <div className="p-3.5 border-b border-zinc-800 text-xs font-bold text-white flex items-center justify-between bg-[#202c33]">
               <span>👤 Pelanggan & Lead Info</span>
@@ -527,7 +541,7 @@ export default function InboxPage() {
               </div>
             </div>
 
-            {/* Extracted Lead Data (KirimDev Lead Collector Inspector) */}
+            {/* Extracted Lead Data */}
             <div className="p-3.5 space-y-4">
               <div>
                 <h4 className="text-xs font-bold text-zinc-300 uppercase tracking-wider mb-2 flex items-center gap-1.5">
@@ -581,7 +595,7 @@ export default function InboxPage() {
 
                 {activeLead && (
                   <button
-                    onClick={handleDeleteActiveLead}
+                    onClick={() => setConfirmResetOpen(true)}
                     className="w-full bg-red-500/10 hover:bg-red-500/20 text-red-400 font-semibold py-2 rounded-xl text-xs transition border border-red-500/20 text-center block"
                   >
                     🗑️ Reset Lead (Tes Ulang Bot)
@@ -593,6 +607,19 @@ export default function InboxPage() {
         )}
 
       </div>
+
+      {/* Confirm Reset Lead Modal */}
+      <ConfirmModal
+        isOpen={confirmResetOpen}
+        title="Reset Data Lead Pelanggan?"
+        message={`Apakah Anda yakin ingin mereset data lead untuk nomor ${selectedContact?.contact_phone}? Bot WhatsApp akan dapat memproses pertanyaan & form lead dari awal lagi.`}
+        confirmText="Ya, Reset Data"
+        cancelText="Batal"
+        variant="danger"
+        loading={resetLoading}
+        onConfirm={confirmDeleteActiveLead}
+        onCancel={() => setConfirmResetOpen(false)}
+      />
     </div>
   )
 }

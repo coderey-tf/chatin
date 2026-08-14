@@ -1,8 +1,10 @@
 "use client";
 
-import { useEffect, useState, use } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import ConfirmModal from "@/components/ConfirmModal";
+import { useToast } from "@/components/Toast";
 
 interface CustomerDetail {
   id: string;
@@ -37,6 +39,7 @@ export default function CustomerDetailClient({
 }) {
   const id = customerId;
   const router = useRouter();
+  const toast = useToast();
   const [customer, setCustomer] = useState<CustomerDetail | null>(null);
   const [links, setLinks] = useState<SetupLink[]>([]);
   const [loading, setLoading] = useState(true);
@@ -106,11 +109,10 @@ export default function CustomerDetailClient({
         throw new Error(data.error || "Failed to update phone number");
       setCustomer(data.data);
       setEditingPhone(false);
-      alert("Nomor WhatsApp berhasil diperbarui!");
+      toast.success("Nomor WhatsApp bisnis berhasil diperbarui!");
     } catch (err) {
-      alert(
-        err instanceof Error ? err.message : "Failed to update phone number",
-      );
+      const errorMsg = err instanceof Error ? err.message : "Failed to update phone number";
+      toast.error(errorMsg);
     } finally {
       setUpdatingPhone(false);
     }
@@ -128,25 +130,35 @@ export default function CustomerDetailClient({
       if (!res.ok)
         throw new Error(data.error || "Failed to generate setup link");
       setLastSetupUrl(data.data.setup_url);
+      toast.success("Link setup Meta Embedded Signup baru berhasil dibuat!");
       fetchLinks();
     } catch (err) {
       const msg =
         err instanceof Error ? err.message : "Failed to generate setup link";
-      alert(msg);
+      toast.error(msg);
       setError(msg);
     } finally {
       setGeneratingLink(false);
     }
   };
 
-  const archiveCustomer = async () => {
-    if (!confirm(`Archive customer ${customer?.name}?`)) return;
+  const [confirmArchiveOpen, setConfirmArchiveOpen] = useState(false);
+  const [archiving, setArchiving] = useState(false);
+
+  const confirmArchiveCustomer = async () => {
+    setArchiving(true);
     try {
       const res = await fetch(`/api/customers/${id}`, { method: "DELETE" });
       if (!res.ok) throw new Error("Failed to archive");
+      setConfirmArchiveOpen(false);
+      toast.success(`Customer ${customer?.name || ''} berhasil diarsipkan`);
       router.push("/dashboard/customers");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to archive");
+      const errorMsg = err instanceof Error ? err.message : "Failed to archive";
+      toast.error(errorMsg);
+      setError(errorMsg);
+    } finally {
+      setArchiving(false);
     }
   };
 
@@ -482,12 +494,25 @@ export default function CustomerDetailClient({
           Arsipkan customer ini jika sudah tidak aktif lagi
         </p>
         <button
-          onClick={archiveCustomer}
+          onClick={() => setConfirmArchiveOpen(true)}
           className="bg-red-500 hover:bg-red-600 text-white text-xs font-bold px-4 py-2 rounded-xl transition"
         >
           Arsipkan Customer
         </button>
       </div>
+
+      {/* Confirm Archive Customer Modal */}
+      <ConfirmModal
+        isOpen={confirmArchiveOpen}
+        title="Arsipkan Customer Bisnis?"
+        message={`Apakah Anda yakin ingin mengarsipkan customer ${customer?.name || ''}? Status bisnis akan diubah menjadi archived.`}
+        confirmText="Arsipkan Customer"
+        cancelText="Batal"
+        variant="danger"
+        loading={archiving}
+        onConfirm={confirmArchiveCustomer}
+        onCancel={() => setConfirmArchiveOpen(false)}
+      />
     </div>
   );
 }

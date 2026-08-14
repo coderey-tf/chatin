@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import Link from 'next/link'
 import { INDUSTRY_TEMPLATES, type BotField } from '@/lib/industry-templates'
 import { handleChat, findMatchingPricelistLink } from '@/lib/chat-engine'
+import { useToast } from '@/components/Toast'
 
 interface BotConfigData {
   industry_preset: string
@@ -118,6 +119,8 @@ export default function BotSettingsClient({ customerId, hideBackButton }: { cust
     handleResetSim()
   }
 
+  const toast = useToast()
+
   const save = async () => {
     setSaving(true)
     setMsg(null)
@@ -137,9 +140,12 @@ export default function BotSettingsClient({ customerId, hideBackButton }: { cust
       })
       if (!res.ok) throw new Error('Gagal menyimpan konfigurasi')
       setMsg('✅ Konfigurasi bot berhasil disimpan!')
+      toast.success('Konfigurasi chatbot & link pricelist berhasil disimpan!')
       fetchConfig()
     } catch (err) {
-      setMsg(`❌ ${err instanceof Error ? err.message : 'Error'}`)
+      const errorText = err instanceof Error ? err.message : 'Error'
+      setMsg(`❌ ${errorText}`)
+      toast.error(`Gagal menyimpan: ${errorText}`)
     } finally { setSaving(false) }
   }
 

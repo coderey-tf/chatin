@@ -1,5 +1,6 @@
 import { listCustomers } from '@/lib/db'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { createClient } from '@/lib/supabase/server'
 import Link from 'next/link'
 
 interface MessageLog {
@@ -21,10 +22,17 @@ export default async function MessagesPage({
 }: {
   searchParams: Promise<{ customer_id?: string }>
 }) {
-  const { customer_id: customerId } = await searchParams
+  const { customer_id: paramCustomerId } = await searchParams
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+
+  const userCustomers = await listCustomers(undefined, user?.id, user?.email ?? undefined)
+  const activeCustomer = userCustomers[0]
+  const customerId = paramCustomerId || activeCustomer?.id
+
   const sb = createAdminClient()
 
-  // Fetch messages
+  // Fetch messages scoped to user customer
   let query = sb
     .from('message_logs')
     .select('*, customers(name)')
@@ -64,16 +72,15 @@ export default async function MessagesPage({
     statsQueryFailed,
   ])
 
-  // Customers for filter
-  const customers = await listCustomers()
-
   return (
     <div>
       <div className="flex items-center justify-between mb-8">
         <div>
-          <h1 className="text-2xl font-bold mb-2">Message Logs</h1>
+          <h1 className="text-2xl font-bold mb-1 flex items-center gap-2">
+            <span>📜</span> Audit Log Pesan
+          </h1>
           <p className="text-zinc-400 text-sm">
-            {customerId ? `Messages for ${customers.find(c => c.id === customerId)?.name || customerId}` : 'All messages sent via platform'}
+            Audit trail semua pesan WhatsApp yang dikirim & diterima oleh bisnis Anda ({activeCustomer?.name || 'Bisnis Anda'})
           </p>
         </div>
       </div>
@@ -102,39 +109,12 @@ export default async function MessagesPage({
         </div>
       </div>
 
-      {/* Filters */}
-      <div className="mb-6">
-        <div className="flex items-center gap-2 flex-wrap text-sm">
-          <Link
-            href="/dashboard/messages"
-            className={`px-3 py-1.5 rounded-xl font-medium transition ${
-              !customerId ? 'bg-white text-zinc-900' : 'bg-zinc-900 text-zinc-400 border border-zinc-800 hover:text-white'
-            }`}
-          >
-            All customers
-          </Link>
-          {customers.map((c) => (
-            <Link
-              key={c.id}
-              href={`/dashboard/messages?customer_id=${c.id}`}
-              className={`px-3 py-1.5 rounded-xl font-medium transition ${
-                customerId === c.id ? 'bg-white text-zinc-900' : 'bg-zinc-900 text-zinc-400 border border-zinc-800 hover:text-white'
-              }`}
-            >
-              {c.name}
-            </Link>
-          ))}
-        </div>
-      </div>
-
       {/* Message list */}
       {messages.length === 0 ? (
         <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-12 text-center text-zinc-500">
           <p className="text-lg mb-2">📭 Belum ada message</p>
-          <p className="text-sm">
-            {customerId
-              ? 'Belum ada pesan untuk customer ini'
-              : 'Pesan yang dikirim lewat dashboard akan muncul di sini'}
+          <p className="text-sm text-zinc-400">
+            Belum ada riwayat pesan masuk atau keluar untuk bisnis Anda
           </p>
         </div>
       ) : (

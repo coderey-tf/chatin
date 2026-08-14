@@ -177,25 +177,9 @@ export default function BillingPage() {
             <span>💳</span> Billing & Langganan
           </h1>
           <p className="text-zinc-400 text-sm">
-            Kelola paket langganan, kuota WABA, dan tagihan invoice tenant Anda
+            Kelola paket langganan, kuota WABA, dan tagihan invoice bisnis Anda
           </p>
         </div>
-
-        {/* Customer Selector */}
-        {customers.length > 0 && (
-          <div className="flex items-center gap-2 bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-1.5 shrink-0">
-            <span className="text-xs text-zinc-400">Tenant:</span>
-            <select
-              value={selectedCustomerId}
-              onChange={(e) => setSelectedCustomerId(e.target.value)}
-              className="bg-transparent text-sm text-white font-medium focus:outline-none cursor-pointer"
-            >
-              {customers.map(c => (
-                <option key={c.id} value={c.id} className="bg-zinc-900 text-white">{c.name}</option>
-              ))}
-            </select>
-          </div>
-        )}
       </div>
 
       {actionMsg && (

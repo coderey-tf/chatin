@@ -2,6 +2,8 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
+import ConfirmModal from '@/components/ConfirmModal'
+import { useToast } from '@/components/Toast'
 
 interface Lead {
   id: string
@@ -59,6 +61,8 @@ export default function LeadsClient({ customerId }: { customerId: string }) {
     fetchCustomer()
   }, [fetchLeads, fetchCustomer])
 
+  const toast = useToast()
+
   const handleStatusChange = async (leadId: string, newStatus: string) => {
     setLeads(prev => prev.map(l => l.id === leadId ? { ...l, status: newStatus } : l))
     try {
@@ -67,25 +71,39 @@ export default function LeadsClient({ customerId }: { customerId: string }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: newStatus }),
       })
+      toast.success(`Status lead berhasil diubah ke ${newStatus}`)
     } catch {
+      toast.error('Gagal memperbarui status lead')
       fetchLeads()
     }
   }
 
-  const handleDeleteLead = async (leadId: string) => {
-    if (!confirm('Apakah Anda yakin ingin menghapus lead ini?')) return
+  const [deleteLeadId, setDeleteLeadId] = useState<string | null>(null)
+  const [deleteLoading, setDeleteLoading] = useState(false)
+
+  const confirmDeleteLead = async () => {
+    if (!deleteLeadId) return
+    const leadId = deleteLeadId
+    setDeleteLoading(true)
     setLeads(prev => prev.filter(l => l.id !== leadId))
+
     try {
       await fetch(`/api/customers/${id}/leads/${leadId}`, {
         method: 'DELETE',
       })
+      setDeleteLeadId(null)
+      toast.success('Record lead berhasil dihapus')
     } catch {
+      toast.error('Gagal menghapus lead')
       fetchLeads()
+    } finally {
+      setDeleteLoading(false)
     }
   }
 
   const handleExportCSV = () => {
     if (leads.length === 0) return
+    toast.info(`Mengeksport ${leads.length} data lead ke file CSV...`)
 
     // Extract all unique data keys
     const customKeys = new Set<string>()
@@ -254,7 +272,7 @@ export default function LeadsClient({ customerId }: { customerId: string }) {
                   </select>
 
                   <button
-                    onClick={() => handleDeleteLead(lead.id)}
+                    onClick={() => setDeleteLeadId(lead.id)}
                     className="p-1.5 text-zinc-500 hover:text-red-400 hover:bg-zinc-800 rounded-lg transition"
                     title="Hapus lead"
                   >
@@ -296,6 +314,19 @@ export default function LeadsClient({ customerId }: { customerId: string }) {
           ))}
         </div>
       )}
+
+      {/* Confirm Delete Lead Modal */}
+      <ConfirmModal
+        isOpen={Boolean(deleteLeadId)}
+        title="Hapus Record Lead?"
+        message="Apakah Anda yakin ingin menghapus record data lead ini? Tindakan ini tidak dapat dibatalkan."
+        confirmText="Hapus Lead"
+        cancelText="Batal"
+        variant="danger"
+        loading={deleteLoading}
+        onConfirm={confirmDeleteLead}
+        onCancel={() => setDeleteLeadId(null)}
+      />
     </div>
   )
 }
