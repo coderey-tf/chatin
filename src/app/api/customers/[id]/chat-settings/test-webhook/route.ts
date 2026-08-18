@@ -16,11 +16,14 @@ export async function POST(
 
     const { id } = await params
     const body = await request.json()
-    const { url, secret } = body
+    const { url, secret, phone, text } = body
 
     if (!url) {
       return NextResponse.json({ ok: false, error: 'Webhook URL is required' }, { status: 400 })
     }
+
+    const testPhone = (phone && typeof phone === 'string' && phone.trim()) ? phone.trim() : '6285156266871'
+    const testText = (text && typeof text === 'string' && text.trim()) ? text.trim() : '50rb makan siang'
 
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(), 10000)
@@ -32,8 +35,8 @@ export async function POST(
         'X-Chatin-Secret': secret || '',
       },
       body: JSON.stringify({
-        phone: '6200000000000',
-        text: 'Ping! Test connection from Chatin dashboard.',
+        phone: testPhone,
+        text: testText,
         type: 'text',
         contact_name: 'Chatin Test',
         customer_id: id,

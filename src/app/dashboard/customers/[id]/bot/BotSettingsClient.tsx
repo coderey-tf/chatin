@@ -666,7 +666,12 @@ export default function BotSettingsClient({ customerId, hideBackButton }: { cust
                         const res = await fetch(`/api/customers/${id}/chat-settings/test-webhook`, {
                           method: 'POST',
                           headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({ url: customWebhookUrl, secret: customWebhookSecret }),
+                          body: JSON.stringify({
+                            url: customWebhookUrl,
+                            secret: customWebhookSecret,
+                            phone: '6285156266871',
+                            text: '50rb makan siang',
+                          }),
                         })
                         const data = await res.json()
                         setWebhookTestResult(data)
