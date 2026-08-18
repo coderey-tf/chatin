@@ -238,13 +238,13 @@ export default function CustomerDetailClient({
           </div>
           <div className="flex items-center gap-2">
             <Link
-              href="/dashboard/bot"
+              href={`/dashboard/customers/${customer.id}/bot`}
               className="text-xs bg-blue-500/20 text-blue-400 border border-blue-500/30 px-3 py-1.5 rounded-xl hover:bg-blue-500/30 transition font-semibold"
             >
               🤖 Setting Bot
             </Link>
             <Link
-              href="/dashboard/leads"
+              href={`/dashboard/customers/${customer.id}/leads`}
               className="text-xs bg-purple-500/20 text-purple-400 border border-purple-500/30 px-3 py-1.5 rounded-xl hover:bg-purple-500/30 transition font-semibold"
             >
               📊 Leads
