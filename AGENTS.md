@@ -326,6 +326,10 @@ Whenever code is pushed to branch `main`, GitHub Actions automatically:
 
 17. **Ultra-Responsive 3-Column Live Inbox & Sleek Minimalist Dark Scrollbars**: Custom 6px dark minimalist scrollbar (`#27272a` thumb, rounded-full, hidden arrows) styled in `src/app/globals.css`. Column 3 (Pelanggan & Lead Info) renders as a Slide-Over Overlay Drawer on `< xl` screens with toggle button (`👤 Detail` / `✕ Tutup`), and 1-column layout with back button (`←`) on mobile (`< md`).
 
+18. **Custom Bot Logic Mode (Webhook Forwarder / Flowku Integration)**: Supports toggling between `template` mode (built-in 4-step funnel) and `custom` mode in `/dashboard/bot`. In `custom` mode, incoming WhatsApp messages are forwarded to an external API endpoint (e.g. Flowku bot FastAPI at `/chatin/process`) via POST request with `X-Chatin-Secret` authentication header. The external API returns `{ reply: "..." }`, and Chatin sends the WhatsApp reply via KirimDev API, enabling integration with custom external bot backends. Includes a Test Webhook API (`/api/customers/[id]/chat-settings/test-webhook`).
+
+19. **Superadmin Role-Based Access (`coderey.wiki@gmail.com`)**: Technical developer settings (`⚙️ Pengaturan Webhook & Developer`, Webhook URL, Secret Generator, Timeout, & Test Connection API) are **100% hidden from regular clients** and accessible ONLY when logged in as `coderey.wiki@gmail.com`. Superadmin accounts also unlock the `🛡️ Superadmin Operator` sidebar menu (`/dashboard/customers`, `/dashboard/messages`, `/dashboard/billing`) for platform administration.
+
 ---
 
 ## Webhook Handling (v2.3.1 — Critical Detail)

@@ -17,7 +17,11 @@ export async function GET(request: NextRequest) {
     const searchParams = request.nextUrl.searchParams
     const status = searchParams.get('status') as CustomerStatus | null
 
-    const customers = await listLocalCustomers(status || undefined, user.id)
+    const isSuperAdmin = user.email === 'coderey.wiki@gmail.com'
+    const customers = isSuperAdmin
+      ? await listLocalCustomers(status || undefined, undefined)
+      : await listLocalCustomers(status || undefined, user.id)
+
     return NextResponse.json({ data: customers, source: 'local' })
   } catch (error) {
     return NextResponse.json(

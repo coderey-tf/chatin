@@ -64,6 +64,8 @@ HMAC verification: wrapped in try/catch (non-fatal on failure, logs warning only
 - Custom ConfirmModal: Replaced native browser `confirm()` with custom glassmorphic dark mode modal component (`src/components/ConfirmModal.tsx`) for destructive actions
 - Official shadcn/ui Sonner Toaster: Integrated `sonner@2.0.8` (`src/components/Toast.tsx`) top-right dark mode toast notifications across all dashboard actions
 - Ultra-Responsive Live Inbox & Sleek Scrollbar: Custom 6px dark scrollbars in `src/app/globals.css`, Column 3 Slide-Over Drawer on `< xl` screens, and 1-column mobile view with back button
+- Custom Bot Logic Mode (Flowku Bot Integration): Toggle between `template` mode and `custom` mode in `/dashboard/bot`. In `custom` mode, incoming WhatsApp messages are forwarded to an external API endpoint (e.g. Flowku bot `/chatin/process`) with `X-Chatin-Secret` auth header, and Chatin sends the returned reply via KirimDev
+- Superadmin Role-Based Access (`coderey.wiki@gmail.com`): Developer settings (`⚙️ Pengaturan Webhook & Developer`) 100% hidden from regular clients. Unlocked ONLY when logged in as `coderey.wiki@gmail.com`, along with `🛡️ Superadmin Operator` sidebar menu (`/dashboard/customers`, `/dashboard/messages`, `/dashboard/billing`)
 
 ## Key Files
 - src/lib/db.ts — All Supabase DB helpers (async, uses createAdminClient + auto-healing user_id link)
@@ -76,12 +78,13 @@ HMAC verification: wrapped in try/catch (non-fatal on failure, logs warning only
 - src/lib/supabase/server.ts — Server-side Supabase client (@supabase/ssr)
 - src/lib/supabase/client.ts — Browser-side Supabase client
 - src/lib/supabase/admin.ts — Service-role admin client (bypasses RLS)
-- src/app/api/webhooks/kirimdev/route.ts — Webhook receiver + auto-reply (v2.3.1 with name priority & preset fallbacks)
+- src/app/api/webhooks/kirimdev/route.ts — Webhook receiver + auto-reply (v2.3.1 with custom bot_mode forwarding & template fallbacks)
+- src/app/api/customers/[id]/chat-settings/test-webhook/route.ts — API endpoint to test custom webhook connectivity
 - src/app/api/chat/route.ts — Public chat endpoint
 - src/app/api/inbox/route.ts — Inbox contacts API
 - src/app/api/inbox/[phone]/route.ts — Thread + 24h reply API
 - src/app/dashboard/inbox/page.tsx — Live Conversation Inbox: 3-column KirimDev UI (/dashboard/inbox) with Realtime WS, status filters, WhatsApp Markdown parser (*bold* -> bold text), KirimDev green/grey bubbles, Slide-Over drawer on < xl, and responsive layout
-- src/app/dashboard/bot/page.tsx — Bot settings + Interactive WhatsApp Sandbox Chat Simulator
+- src/app/dashboard/bot/page.tsx — Bot settings + Custom Bot Logic mode + Interactive WhatsApp Sandbox Chat Simulator
 
 Read AGENTS.md for full technical docs
 

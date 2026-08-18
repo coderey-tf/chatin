@@ -351,6 +351,16 @@ async function processInboundMessage(
     }
   }
 
+  // ── Check Bot Mode ──
+  const botMode = (configJson?.bot_mode as string) || 'template'
+
+  if (botMode === 'custom') {
+    // Forward to custom webhook endpoint (e.g., Flowku bot)
+    await processCustomWebhook(customerId, inbound, effectivePhoneId || undefined, configJson)
+    return
+  }
+
+  // ── Template Mode (existing flow) ──
   const parseJson = (val: unknown, fallback: unknown) => {
     if (!val) return fallback
     if (typeof val === 'object') return val
@@ -417,6 +427,83 @@ async function processInboundMessage(
   if (inbound.wamid && effectivePhoneId && result.autoReply && !result.handoverToAdmin) {
     try {
       const phone = kirim.phoneNumbers(effectivePhoneId)
+      await phone.messages.markAsRead(inbound.wamid)
+    } catch {}
+  }
+}
+
+/**
+ * Process inbound message via custom external webhook (e.g., Flowku bot).
+ * POST to the configured webhook URL with message payload,
+ * receive { reply: "..." } response, and send reply via KirimDev.
+ */
+async function processCustomWebhook(
+  customerId: string,
+  inbound: { from: string; body: string; waName?: string; wamid?: string },
+  phoneNumberId: string | undefined,
+  configJson: Record<string, unknown>,
+) {
+  const webhookUrl = configJson?.custom_webhook_url as string
+  const webhookSecret = configJson?.custom_webhook_secret as string
+  const timeoutMs = (configJson?.custom_webhook_timeout_ms as number) || 15000
+
+  if (!webhookUrl) {
+    console.log(`[webhook] Custom mode but no webhook URL configured for customer ${customerId}`)
+    return
+  }
+
+  console.log(`[webhook] ⚡ Custom mode — forwarding to ${webhookUrl} for customer ${customerId}`)
+
+  try {
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), timeoutMs)
+
+    const res = await fetch(webhookUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Chatin-Secret': webhookSecret || '',
+      },
+      body: JSON.stringify({
+        phone: inbound.from,
+        text: inbound.body,
+        type: 'text',
+        contact_name: inbound.waName || '',
+        customer_id: customerId,
+        message_id: inbound.wamid || '',
+        timestamp: new Date().toISOString(),
+      }),
+      signal: controller.signal,
+    })
+
+    clearTimeout(timeout)
+
+    if (res.ok) {
+      const data = await res.json()
+      const reply = data.reply as string
+
+      if (reply && phoneNumberId) {
+        await sendWhatsAppReply(phoneNumberId, inbound.from, reply, customerId)
+        console.log(`[webhook] ⚡ Custom reply sent to ${inbound.from} (${reply.length} chars)`)
+      } else {
+        console.log(`[webhook] ⚡ Custom webhook returned empty reply or no phoneNumberId`)
+      }
+    } else {
+      const errBody = await res.text().catch(() => '')
+      console.error(`[webhook] ⚡ Custom webhook error: ${res.status} ${errBody.substring(0, 200)}`)
+    }
+  } catch (err) {
+    if (err instanceof Error && err.name === 'AbortError') {
+      console.error(`[webhook] ⚡ Custom webhook timeout (${timeoutMs}ms) for customer ${customerId}`)
+    } else {
+      console.error(`[webhook] ⚡ Custom webhook error for customer ${customerId}:`, err)
+    }
+  }
+
+  // Mark as read regardless of custom webhook result
+  if (inbound.wamid && phoneNumberId) {
+    try {
+      const phone = kirim.phoneNumbers(phoneNumberId)
       await phone.messages.markAsRead(inbound.wamid)
     } catch {}
   }

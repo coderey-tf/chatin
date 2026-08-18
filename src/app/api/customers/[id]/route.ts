@@ -34,6 +34,7 @@ export async function GET(
     const local = await getCustomer(id)
     await upsertCustomer({
       id: id,
+      user_id: local?.user_id || undefined,
       name: local?.name || customerName,
       email: local?.email || customerEmail,
       status: local?.status || customerStatus,
@@ -120,6 +121,7 @@ export async function DELETE(
     if (local) {
       await upsertCustomer({
         id: local.id,
+        user_id: local.user_id || undefined,
         name: local.name,
         email: local.email,
         status: 'archived',

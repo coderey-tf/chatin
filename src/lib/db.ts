@@ -1,7 +1,9 @@
 import { createAdminClient } from './supabase/admin'
+import { getKirim, isValidKirimDevCustomerId } from './kirimdev'
 
 export interface Customer {
   id: string
+  user_id?: string | null
   name: string
   email: string | null
   status: string
@@ -122,9 +124,74 @@ export async function getCustomer(id: string): Promise<Customer | null> {
   return data
 }
 
+// Sync local customers with KirimDev BSP platform status
+export async function syncCustomersWithKirimDev(): Promise<void> {
+  try {
+    const sb = createAdminClient()
+
+    // 1. Delete invalid garbage rows (e.g. id = 'undefined', empty id, or name = 'Customer')
+    await sb.from('customers').delete().or('id.eq.undefined,id.eq.,name.eq.Customer')
+
+    // 2. Fetch live customers list from KirimDev BSP API
+    const kirim = getKirim()
+    let kirimList: Array<{ id: string; name?: string; email?: string; status?: string }> = []
+    try {
+      const res = await kirim.customers.list()
+      if (res && Array.isArray((res as any).items)) {
+        kirimList = (res as any).items
+      } else if (Array.isArray(res)) {
+        kirimList = res as any
+      } else if (res && typeof (res as any)[Symbol.asyncIterator] === 'function') {
+        for await (const item of (res as any)) {
+          kirimList.push(item)
+        }
+      }
+    } catch (err) {
+      console.warn('[syncKirimDev] Could not fetch KirimDev customers:', err)
+      return
+    }
+
+    const kirimMap = new Map<string, { id: string; name?: string; email?: string; status?: string }>()
+    for (const kc of kirimList) {
+      if (kc.id) kirimMap.set(kc.id, kc)
+    }
+
+    // 3. Fetch local customers from Supabase
+    const { data: localCustomers } = await sb.from('customers').select('*')
+    if (!localCustomers) return
+
+    for (const local of localCustomers) {
+      if (!isValidKirimDevCustomerId(local.id)) {
+        await sb.from('customers').delete().eq('id', local.id)
+        continue
+      }
+
+      const kirimData = kirimMap.get(local.id)
+      if (kirimData) {
+        // Customer exists in KirimDev BSP platform!
+        const newStatus = kirimData.status || local.status || 'active'
+        if (local.status !== newStatus) {
+          await sb.from('customers').update({ status: newStatus }).eq('id', local.id)
+        }
+      } else {
+        // Customer does NOT exist in KirimDev BSP platform!
+        // Mark status as 'archived' so it doesn't clutter the Active tab
+        if (local.status !== 'archived') {
+          await sb.from('customers').update({ status: 'archived' }).eq('id', local.id)
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[syncKirimDev] exception:', err)
+  }
+}
+
 export async function listCustomers(status?: string, userId?: string, userEmail?: string): Promise<Customer[]> {
   try {
     const sb = createAdminClient()
+
+    // Sync status with KirimDev BSP platform before listing
+    await syncCustomersWithKirimDev()
 
     // Auto-heal: automatically link any existing customer whose email matches userEmail but user_id is null
     if (userId && userEmail) {

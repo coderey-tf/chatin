@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { INDUSTRY_TEMPLATES, type BotField } from '@/lib/industry-templates'
 import { handleChat, findMatchingPricelistLink } from '@/lib/chat-engine'
 import { useToast } from '@/components/Toast'
+import { createClient } from '@/lib/supabase/client'
 
 interface BotConfigData {
   industry_preset: string
@@ -42,6 +43,28 @@ export default function BotSettingsClient({ customerId, hideBackButton }: { cust
   const [enabled, setEnabled] = useState(true)
   const [testModeEnabled, setTestModeEnabled] = useState(false)
   const [testPhoneNumbers, setTestPhoneNumbers] = useState('')
+
+  // Custom Bot Logic (Webhook Forwarder) State
+  const [botMode, setBotMode] = useState<'template' | 'custom'>('template')
+  const [customWebhookUrl, setCustomWebhookUrl] = useState('')
+  const [customWebhookSecret, setCustomWebhookSecret] = useState('')
+  const [customWebhookTimeoutMs, setCustomWebhookTimeoutMs] = useState(15000)
+  const [testingWebhook, setTestingWebhook] = useState(false)
+  const [webhookTestResult, setWebhookTestResult] = useState<{ ok: boolean; reply?: string; error?: string } | null>(null)
+  const [showDevSettings, setShowDevSettings] = useState(false)
+
+  // Auth User Email & Superadmin Role Check
+  const [userEmail, setUserEmail] = useState<string | null>(null)
+  useEffect(() => {
+    const supabase = createClient()
+    supabase.auth.getUser().then(({ data }) => {
+      if (data?.user?.email) {
+        setUserEmail(data.user.email)
+      }
+    })
+  }, [])
+
+  const isAdmin = userEmail === 'coderey.wiki@gmail.com'
 
   // Dynamic Pricelist Link Rule State
   const [newLinkKey, setNewLinkKey] = useState('')
@@ -85,6 +108,10 @@ export default function BotSettingsClient({ customerId, hideBackButton }: { cust
         setEnabled(d.enabled ?? true)
         setTestModeEnabled(configJson.test_mode_enabled === true)
         setTestPhoneNumbers(configJson.test_phone_numbers || '')
+        setBotMode((configJson.bot_mode as 'template' | 'custom') || 'template')
+        setCustomWebhookUrl((configJson.custom_webhook_url as string) || '')
+        setCustomWebhookSecret((configJson.custom_webhook_secret as string) || '')
+        setCustomWebhookTimeoutMs((configJson.custom_webhook_timeout_ms as number) || 15000)
         setEditingFields(d.fields && d.fields.length > 0 ? d.fields : [...t.fields])
         
         setGreeting(d.templates?.greeting || t.default_greeting)
@@ -133,6 +160,10 @@ export default function BotSettingsClient({ customerId, hideBackButton }: { cust
           enabled,
           test_mode_enabled: testModeEnabled,
           test_phone_numbers: testPhoneNumbers,
+          bot_mode: botMode,
+          custom_webhook_url: customWebhookUrl,
+          custom_webhook_secret: customWebhookSecret,
+          custom_webhook_timeout_ms: customWebhookTimeoutMs,
           fields: editingFields,
           templates: { greeting, followup, completion },
           pricelist_links: pricelistLinks,
@@ -426,7 +457,285 @@ export default function BotSettingsClient({ customerId, hideBackButton }: { cust
         )}
       </div>
 
-      {/* Industry Template Selector */}
+      {/* Bot Mode Toggle */}
+      <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 space-y-4">
+        <div>
+          <h2 className="font-semibold text-white text-sm flex items-center gap-2">⚙️ Mode Bot</h2>
+          <p className="text-zinc-400 text-xs mt-0.5">Pilih cara bot Anda merespon pesan masuk WhatsApp</p>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <button
+            onClick={() => setBotMode('template')}
+            className={`p-4 rounded-xl border text-left transition-all hover:scale-[1.01] ${
+              botMode === 'template'
+                ? 'border-emerald-500 bg-emerald-500/10 ring-1 ring-emerald-500/30'
+                : 'border-zinc-800 bg-zinc-950/40 hover:border-zinc-700'
+            }`}
+          >
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-2xl">🤖</span>
+              {botMode === 'template' && (
+                <span className="text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded-full">Aktif</span>
+              )}
+            </div>
+            <div className="font-semibold text-sm text-white">Template Mode</div>
+            <div className="text-xs text-zinc-400 mt-1">Chatbot otomatis menggunakan template greeting, lead collector, dan pricelist bawaan Chatin</div>
+          </button>
+
+          <button
+            onClick={() => setBotMode('custom')}
+            className={`p-4 rounded-xl border text-left transition-all hover:scale-[1.01] ${
+              botMode === 'custom'
+                ? 'border-violet-500 bg-violet-500/10 ring-1 ring-violet-500/30'
+                : 'border-zinc-800 bg-zinc-950/40 hover:border-zinc-700'
+            }`}
+          >
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-2xl">⚡</span>
+              {botMode === 'custom' && (
+                <span className="text-[10px] font-bold bg-violet-500/20 text-violet-400 border border-violet-500/30 px-2 py-0.5 rounded-full">Aktif</span>
+              )}
+            </div>
+            <div className="font-semibold text-sm text-white">Custom Logic</div>
+            <div className="text-xs text-zinc-400 mt-1">Dikelola langsung oleh Admin Chatin untuk alur bot kustom (integrasi sistem/AI)</div>
+          </button>
+        </div>
+      </div>
+
+      {/* Custom Webhook Configuration & Client Contact Banner (when mode = custom) */}
+      {botMode === 'custom' && (
+        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 space-y-6">
+          <div>
+            <h2 className="font-semibold text-white text-base flex items-center gap-2">
+              <span>⚡</span> Custom Bot Logic
+            </h2>
+            <p className="text-zinc-400 text-xs mt-1 leading-relaxed">
+              Bot WhatsApp Anda berjalan menggunakan logika bisnis kustom yang disesuaikan khusus dengan kebutuhan operasional Anda.
+            </p>
+          </div>
+
+          {/* Status Box */}
+          <div className="bg-zinc-950/80 border border-zinc-800 rounded-2xl p-5 space-y-3">
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <span className="text-xs font-semibold text-zinc-300">Status Integrasi Logic Bot:</span>
+              {customWebhookUrl ? (
+                <span className="text-xs font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-3 py-1 rounded-full flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                  Custom Engine Terhubung & Aktif
+                </span>
+              ) : (
+                <span className="text-xs font-bold text-amber-400 bg-amber-500/10 border border-amber-500/30 px-3 py-1 rounded-full flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-amber-400"></span>
+                  Menunggu Setup dari Admin
+                </span>
+              )}
+            </div>
+
+            <p className="text-xs text-zinc-400 leading-relaxed">
+              Seluruh alur percakapan, integrasi sistem (seperti pencatatan otomatis, rekomendasi AI, sistem kasir, dll.), dan balasan bot ditangani langsung oleh server kustom bisnis Anda.
+            </p>
+          </div>
+
+          {/* Client Call-To-Action Banner */}
+          <div className="bg-gradient-to-r from-violet-950/40 via-zinc-900 to-violet-950/20 border border-violet-500/30 rounded-2xl p-6 space-y-4">
+            <div className="space-y-1">
+              <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                <span>💬</span> Ingin Mengubah Logic / Konsultasi Fitur Custom Baru?
+              </h3>
+              <p className="text-xs text-zinc-300 leading-relaxed">
+                Klien tidak perlu repot melakukan setup teknis atau webhook. Tim Admin Chatin yang akan membantu mengatur seluruh alur & koneksi sistem untuk Anda.
+              </p>
+            </div>
+
+            <div className="pt-1">
+              <a
+                href="https://wa.me/6285156266871?text=Halo%20Admin%20Chatin,%20saya%20ingin%20konsultasi%20pembuatan/perubahan%20Custom%20Logic%20Bot%20untuk%20bisnis%20saya."
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-5 py-3 rounded-xl text-xs transition shadow-lg shadow-emerald-600/20 hover:scale-[1.02] active:scale-[0.98]"
+              >
+                <span className="text-base">💬</span>
+                <span>Hubungi Admin Chatin via WhatsApp (+6285156266871)</span>
+              </a>
+            </div>
+          </div>
+
+          {/* Admin-Only Developer Settings (Visible ONLY for coderey.wiki@gmail.com) */}
+          {isAdmin && (
+            <div className="pt-2 border-t border-zinc-800/80">
+              <div className="flex items-center justify-between gap-2 mb-3">
+                <button
+                  type="button"
+                  onClick={() => setShowDevSettings(s => !s)}
+                  className="text-xs text-violet-400 hover:text-violet-300 font-semibold flex items-center gap-1.5 transition py-1"
+                >
+                  <span>{showDevSettings ? '🔽' : '⚙️'}</span>
+                  <span className="underline underline-offset-4">
+                    {showDevSettings ? 'Sembunyikan Pengaturan Webhook (Admin View)' : 'Pengaturan Webhook & Developer (Khusus Superadmin)'}
+                  </span>
+                </button>
+                <span className="text-[10px] font-bold font-mono bg-violet-500/20 text-violet-300 border border-violet-500/30 px-2.5 py-0.5 rounded-full">
+                  🛡️ Superadmin ({userEmail})
+                </span>
+              </div>
+
+              {showDevSettings && (
+              <div className="mt-4 p-5 bg-zinc-950/90 border border-zinc-800 rounded-2xl space-y-5">
+                <div>
+                  <h3 className="font-semibold text-white text-xs flex items-center gap-2">🔧 Developer Webhook Setup</h3>
+                  <p className="text-zinc-500 text-[11px] mt-0.5">Konfigurasi URL server eksternal (misal: Flowku bot API pada port 8700)</p>
+                </div>
+
+                <div className="space-y-4">
+                  {/* Webhook URL */}
+                  <div>
+                    <label className="block text-xs font-semibold text-zinc-300 mb-1.5">🔗 Webhook URL <span className="text-red-400">*</span></label>
+                    <input
+                      type="url"
+                      value={customWebhookUrl}
+                      onChange={(e) => setCustomWebhookUrl(e.target.value)}
+                      placeholder="https://your-api.com/chatin/process"
+                      className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-2.5 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-violet-500 font-mono"
+                    />
+                    <p className="text-[11px] text-zinc-500 mt-1">Endpoint API yang menerima POST request dengan payload {'{"phone": "62xxx", "text": "...", "type": "text"}'}</p>
+                  </div>
+
+                  {/* Webhook Secret */}
+                  <div>
+                    <label className="block text-xs font-semibold text-zinc-300 mb-1.5">🔑 Webhook Secret</label>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={customWebhookSecret}
+                        onChange={(e) => setCustomWebhookSecret(e.target.value)}
+                        placeholder="chsec_your_secret_here"
+                        className="flex-1 bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-2.5 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-violet-500 font-mono"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
+                          const secret = 'chsec_' + Array.from({ length: 24 }, () => chars[Math.floor(Math.random() * chars.length)]).join('')
+                          setCustomWebhookSecret(secret)
+                          toast.success('Secret key baru di-generate!')
+                        }}
+                        className="px-3 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs rounded-xl border border-zinc-700 transition shrink-0"
+                      >
+                        🔄 Generate
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          navigator.clipboard.writeText(customWebhookSecret)
+                          toast.success('Secret key disalin ke clipboard!')
+                        }}
+                        className="px-3 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs rounded-xl border border-zinc-700 transition shrink-0"
+                      >
+                        📋 Copy
+                      </button>
+                    </div>
+                    <p className="text-[11px] text-zinc-500 mt-1">Dikirim sebagai header <code className="text-violet-400">X-Chatin-Secret</code> ke endpoint Anda untuk verifikasi keamanan</p>
+                  </div>
+
+                  {/* Timeout */}
+                  <div>
+                    <label className="block text-xs font-semibold text-zinc-300 mb-1.5">⏱️ Timeout (ms)</label>
+                    <input
+                      type="number"
+                      value={customWebhookTimeoutMs}
+                      onChange={(e) => setCustomWebhookTimeoutMs(Number(e.target.value) || 15000)}
+                      min={3000}
+                      max={60000}
+                      step={1000}
+                      className="w-40 bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-violet-500 font-mono"
+                    />
+                    <p className="text-[11px] text-zinc-500 mt-1">Waktu maksimum menunggu respons dari server Anda (default: 15000ms = 15 detik)</p>
+                  </div>
+                </div>
+
+                {/* Test Webhook Button */}
+                <div className="pt-3 border-t border-zinc-800">
+                  <button
+                    type="button"
+                    disabled={!customWebhookUrl || testingWebhook}
+                    onClick={async () => {
+                      setTestingWebhook(true)
+                      setWebhookTestResult(null)
+                      try {
+                        const res = await fetch(`/api/customers/${id}/chat-settings/test-webhook`, {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ url: customWebhookUrl, secret: customWebhookSecret }),
+                        })
+                        const data = await res.json()
+                        setWebhookTestResult(data)
+                        if (data.ok) {
+                          toast.success('Webhook test berhasil! Koneksi OK.')
+                        } else {
+                          toast.error(`Webhook test gagal: ${data.error || 'Status ' + data.status}`)
+                        }
+                      } catch (err) {
+                        const msg = err instanceof Error ? err.message : 'Test failed'
+                        setWebhookTestResult({ ok: false, error: msg })
+                        toast.error(`Webhook test error: ${msg}`)
+                      } finally {
+                        setTestingWebhook(false)
+                      }
+                    }}
+                    className="flex items-center gap-2 bg-violet-600 hover:bg-violet-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold px-5 py-2.5 rounded-xl text-xs transition shadow-md shadow-violet-500/10"
+                  >
+                    {testingWebhook ? (
+                      <><span className="animate-spin">⏳</span> Testing...</>
+                    ) : (
+                      <>🧪 Test Webhook Connection</>
+                    )}
+                  </button>
+
+                  {webhookTestResult && (
+                    <div className={`mt-3 p-3 rounded-xl text-xs border ${
+                      webhookTestResult.ok
+                        ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
+                        : 'bg-red-500/10 border-red-500/20 text-red-400'
+                    }`}>
+                      {webhookTestResult.ok ? (
+                        <div className="space-y-1">
+                          <div className="font-semibold">✅ Koneksi berhasil!</div>
+                          {webhookTestResult.reply && (
+                            <div className="mt-1 p-2 bg-zinc-900 rounded-lg text-zinc-300 font-mono text-[11px] whitespace-pre-wrap">
+                              Reply: {webhookTestResult.reply}
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="font-semibold">❌ Gagal: {webhookTestResult.error || 'Unknown error'}</div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Payload Preview */}
+                <div className="pt-3 border-t border-zinc-800">
+                  <h4 className="text-xs font-semibold text-zinc-400 mb-2">📦 Format Payload JSON:</h4>
+                  <pre className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 text-[11px] text-zinc-300 font-mono overflow-x-auto">{JSON.stringify({
+                    phone: '6285156266871',
+                    text: '50rb makan siang',
+                    type: 'text',
+                    contact_name: 'Reynaldi',
+                    customer_id: 'cus_xxx',
+                    message_id: 'wamid.xxx',
+                    timestamp: '2026-08-18T10:00:00Z',
+                  }, null, 2)}</pre>
+                </div>
+              </div>
+            )}
+          </div>
+          )}
+        </div>
+      )}
+
+      {/* Industry Template Selector (Template Mode Only) */}
+      {botMode === 'template' && (<>
       <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
         <div className="flex items-center justify-between mb-4">
           <div>
@@ -1012,6 +1321,7 @@ export default function BotSettingsClient({ customerId, hideBackButton }: { cust
           </div>
         </div>
       </div>
+      </>)}
 
       {/* Save Button */}
       <div className="flex justify-end pt-2">

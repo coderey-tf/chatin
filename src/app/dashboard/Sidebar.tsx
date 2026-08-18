@@ -153,6 +153,64 @@ export function Sidebar({ userEmail, userName, avatarUrl }: SidebarProps) {
             </Link>
           )
         })}
+
+        {/* Superadmin Operator Menu (Visible ONLY for coderey.wiki@gmail.com) */}
+        {userEmail === 'coderey.wiki@gmail.com' && (
+          <div className="pt-4 space-y-1.5 border-t border-zinc-800/60 mt-4">
+            <div className="px-3 pb-2 text-[10px] uppercase font-bold tracking-wider text-violet-400 flex items-center gap-1.5">
+              <span>🛡️</span> Superadmin Operator
+            </div>
+            {[
+              {
+                name: 'Kelola Customer',
+                href: '/dashboard/customers',
+                icon: (
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                  </svg>
+                ),
+              },
+              {
+                name: 'Audit Log Pesan',
+                href: '/dashboard/messages',
+                icon: (
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                ),
+              },
+              {
+                name: 'Billing Platform',
+                href: '/dashboard/billing',
+                icon: (
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M3 10h18M7 15h1m4 0h1m-7 4h12a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                  </svg>
+                ),
+              },
+            ].map((item) => {
+              const isActive = pathname === item.href || pathname.startsWith(item.href)
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className={`flex items-center justify-between px-3.5 py-2.5 rounded-xl text-sm font-medium transition-all group ${
+                    isActive
+                      ? 'bg-violet-950/60 text-violet-200 border border-violet-700/60'
+                      : 'text-zinc-400 hover:text-zinc-100 hover:bg-zinc-900/80'
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
+                    <span className={`transition-colors ${isActive ? 'text-violet-400' : 'text-zinc-500 group-hover:text-zinc-300'}`}>
+                      {item.icon}
+                    </span>
+                    <span>{item.name}</span>
+                  </div>
+                </Link>
+              )
+            })}
+          </div>
+        )}
       </nav>
 
       {/* Footer Profile & Logout */}
