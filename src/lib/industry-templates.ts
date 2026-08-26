@@ -29,7 +29,7 @@ export const INDUSTRY_TEMPLATES: Record<string, IndustryPreset> = {
     description: 'Dekorasi pernikahan, lamaran, ulang tahun, engagement',
     fields: [
       { key: 'name', label: 'Nama', emoji: '👤', type: 'text', required: true, placeholder: 'Nama lengkap' },
-      { key: 'event_date', label: 'Tanggal Acara', emoji: '📅', type: 'date', required: false, placeholder: 'contoh: 20 Oktober 2026', default_value: 'Belum pasti' },
+      { key: 'event_date', label: 'Tanggal Acara', emoji: '📅', type: 'date', required: false, placeholder: 'contoh 20 Oktober 2026', default_value: 'Belum pasti' },
       { key: 'event_type', label: 'Jenis Acara', emoji: '💒', type: 'keyword', required: true, placeholder: 'Wedding / Lamaran',
         keywords: {
           'Wedding': ['nikah', 'wedding', 'resepsi', 'akad', 'menikah', 'pernikahan', 'unduh mantu'],

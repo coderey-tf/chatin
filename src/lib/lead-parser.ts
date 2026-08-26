@@ -92,23 +92,47 @@ function escapeRegex(str: string): string {
  * e.g. "👤 *Nama* (wajib) _(Nama lengkap)_: Claudia"
  *      "💒 *Jenis Acara* (wajib) _(Wedding / Lamaran)_: Wedding"
  *      "🏛️ *Tempat / Venue* (wajib) _(Gedung / Rumah)_: Rumah"
- *      "📅 *Tanggal Acara* (opsional) _(contoh: 20 Oktober 2026)_: 20 Oktober 2026"
+ *      "📅 *Tanggal Acara* (opsional) _(contoh: 20 Oktober 2026)_: 19 Oktober 2026"
  */
 function extractExplicitFormLine(text: string, field: BotField): string | undefined {
+  const labelLower = field.label.toLowerCase()
+  const keyLower = field.key.toLowerCase().replace(/_/g, ' ')
+  const labelWords = field.label.toLowerCase().split(/[\s/()]+/).filter(w => w.length >= 3)
+
+  // Line-by-line check using the last outer colon/equal separator
+  const lines = text.split(/[\n\r]+/)
+  for (const line of lines) {
+    const lastColonIdx = line.lastIndexOf(':')
+    const lastEqualsIdx = line.lastIndexOf('=')
+    const splitIdx = Math.max(lastColonIdx, lastEqualsIdx)
+
+    if (splitIdx > 0) {
+      const leftPart = line.substring(0, splitIdx).toLowerCase()
+      const rightPart = line.substring(splitIdx + 1).trim()
+
+      const isMatch =
+        leftPart.includes(labelLower) ||
+        leftPart.includes(keyLower) ||
+        (labelWords.length > 0 && labelWords.some(w => leftPart.includes(w)))
+
+      if (isMatch && rightPart.length > 0) {
+        return rightPart
+      }
+    }
+  }
+
   const labelEscaped = escapeRegex(field.label)
   const keyEscaped = escapeRegex(field.key.replace(/_/g, ' '))
+  const labelWordPattern = labelWords.map(escapeRegex).join('|')
 
-  // Extract label keyword for relaxed matching if label is complex (e.g. "Tempat / Venue (Gedung / Rumah)" -> "Tempat|Venue")
-  const labelWords = field.label.split(/[\s/()]+/).filter(w => w.length >= 3).map(escapeRegex)
-  const labelWordPattern = labelWords.length > 0 ? labelWords.join('|') : labelEscaped
-
+  // Fallback regex pattern matching
   const patterns = [
     new RegExp(
-      `(?:^|\\n)\\s*(?:[^\\w\\n\\r*]{0,4}\\s*)?(?:\\d+[.)]\\s*)?\\*?(?:${labelEscaped}|${labelWordPattern})\\b[^\n\r:=]*[:=-]\\s*([^\\n\\r]+)`,
+      `(?:^|\\n)\\s*(?:[^\\w\\n\\r*]{0,4}\\s*)?(?:\\d+[.)]\\s*)?\\*?(?:${labelEscaped}|${labelWordPattern})\\b.*?(?::|=|\\s-\\s)\\s*([^\\n\\r]+)`,
       'i'
     ),
     new RegExp(
-      `(?:^|\\n)\\s*(?:[^\\w\\n\\r*]{0,4}\\s*)?(?:\\d+[.)]\\s*)?\\*?${keyEscaped}\\b[^\n\r:=]*[:=-]\\s*([^\\n\\r]+)`,
+      `(?:^|\\n)\\s*(?:[^\\w\\n\\r*]{0,4}\\s*)?(?:\\d+[.)]\\s*)?\\*?${keyEscaped}\\b.*?(?::|=|\\s-\\s)\\s*([^\\n\\r]+)`,
       'i'
     ),
   ]
