@@ -88,7 +88,7 @@ export default async function DashboardPage() {
             {myBusiness ? `Dashboard ${myBusiness.name}` : 'Dashboard WhatsApp Business'}
           </h1>
           <p className="text-xs text-zinc-400">
-            Kelola percakapan pelanggan, otomatisasi chatbot lead collector, dan langganan WhatsApp Anda
+            Kelola percakapan pelanggan dan otomatisasi chatbot lead collector WhatsApp Anda
           </p>
         </div>
 
@@ -173,14 +173,14 @@ export default async function DashboardPage() {
           </Link>
 
           <Link
-            href="/dashboard/billing"
+            href="/dashboard/profile"
             className="group bg-zinc-900/80 hover:bg-zinc-800/80 border border-zinc-800/80 hover:border-amber-500/40 rounded-2xl p-5 transition-all"
           >
             <div className="w-10 h-10 bg-amber-500/10 border border-amber-500/20 text-amber-400 rounded-xl flex items-center justify-center text-lg mb-3 group-hover:scale-110 transition-transform">
-              💳
+              👤
             </div>
-            <h3 className="font-semibold text-sm text-white group-hover:text-amber-400 transition-colors">Langganan & WABA</h3>
-            <p className="text-xs text-zinc-500 mt-1 leading-relaxed">Cek masa aktif paket langganan, kuota percakapan, dan koneksi nomor WhatsApp.</p>
+            <h3 className="font-semibold text-sm text-white group-hover:text-amber-400 transition-colors">Profil Bisnis</h3>
+            <p className="text-xs text-zinc-500 mt-1 leading-relaxed">Kelola profil bisnis, nomor WhatsApp terhubung, dan detail kontak Anda.</p>
           </Link>
         </div>
       </div>

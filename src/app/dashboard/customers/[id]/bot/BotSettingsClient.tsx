@@ -1327,7 +1327,7 @@ export default function BotSettingsClient({ customerId, hideBackButton }: { cust
               <label className="text-[11px] text-zinc-400 mb-1 block">Kata Kunci Kondisi (Opsional)</label>
               <input
                 type="text"
-                placeholder="Contoh: wedding, gedung (pisah koma)"
+                placeholder="Contoh: wedding, gedung (kosongkan jika berlaku untuk semua / link umum)"
                 value={newLinkKeywords}
                 onChange={e => setNewLinkKeywords(e.target.value)}
                 className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3.5 py-2 text-xs text-white placeholder-zinc-600 focus:outline-none focus:border-zinc-700"

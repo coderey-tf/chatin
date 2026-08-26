@@ -65,8 +65,14 @@ export function findMatchingPricelistLink(
   pricelistLinks: Record<string, string>,
   fields: BotField[] = [],
 ): { title: string; url: string } | null {
-  const entries = Object.entries(pricelistLinks)
+  const entries = Object.entries(pricelistLinks).filter(([, url]) => Boolean(url))
   if (entries.length === 0) return null
+
+  // If there is only 1 link configured, ALWAYS send it directly (no keyword condition needed)
+  if (entries.length === 1) {
+    const [singleKey, singleUrl] = entries[0]
+    return { title: singleKey.replace(/\[.*?\]/, '').trim(), url: singleUrl }
+  }
 
   // Combine all extracted lead values into lowercase text tokens
   const leadValuesArray = Object.values(fieldValues).filter(v => typeof v === 'string')
