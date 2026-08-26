@@ -288,6 +288,7 @@ export async function upsertBotConfig(data: {
   enabled?: boolean | number
   test_mode_enabled?: boolean | number
   test_phone_numbers?: string
+  ignored_phone_numbers?: string
   config?: Record<string, unknown>
   fields?: BotField[]
   templates?: Record<string, string>
@@ -308,6 +309,7 @@ export async function upsertBotConfig(data: {
     ...(data.config || {}),
     ...(data.test_mode_enabled !== undefined ? { test_mode_enabled: data.test_mode_enabled === true || data.test_mode_enabled === 1 } : {}),
     ...(data.test_phone_numbers !== undefined ? { test_phone_numbers: data.test_phone_numbers } : {}),
+    ...(data.ignored_phone_numbers !== undefined ? { ignored_phone_numbers: data.ignored_phone_numbers } : {}),
   }
 
   const payload = {

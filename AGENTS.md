@@ -332,6 +332,8 @@ Whenever code is pushed to branch `main`, GitHub Actions automatically:
 
 20. **Universal Form Line & Copy-Paste Template Extraction Engine**: `lead-parser.ts` implements `extractExplicitFormLine` and multi-pattern name extraction to seamlessly parse customer WhatsApp replies when copying bot templates (supporting leading emojis `👤`, markdown bold asterisks `*Nama (wajib)*:`, label tags `(wajib)`/`(opsional)`, numbered lists `1. Claudia`, and standalone single/multi-line name answers `Claudia\nWedding\nRumah`).
 
+21. **Ignored / Blacklisted Phone Numbers Mode (Abaikan Bot)**: Configurable in `/dashboard/bot` via `ignored_phone_numbers` in `config_json`. When messages arrive from designated numbers (such as business owners, partners, staff, family, or suppliers), the webhook receiver records the messages safely in the Live Inbox but completely suppresses chatbot auto-replies and lead funnel mutations, allowing natural human-to-human conversation without bot interference.
+
 ---
 
 ## Webhook Handling (v2.3.1 — Critical Detail)

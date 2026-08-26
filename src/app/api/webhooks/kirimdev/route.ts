@@ -451,6 +451,30 @@ async function processInboundMessage(
     }
   }
 
+  // ── Check Ignored / Blacklisted Phone Numbers (Abaikan Bot) ──
+  const ignoredPhonesRaw = (configJson?.ignored_phone_numbers as string) || "";
+  if (ignoredPhonesRaw.trim()) {
+    const ignoredPhones = ignoredPhonesRaw
+      .split(/[\s,;]+/)
+      .map((p) => p.replace(/[^\d]/g, "").replace(/^0/, "62"))
+      .filter(Boolean);
+
+    const senderPhoneClean = inbound.from
+      .replace(/[^\d]/g, "")
+      .replace(/^0/, "62");
+
+    const isIgnored = ignoredPhones.some(
+      (ip) => senderPhoneClean.endsWith(ip) || ip.endsWith(senderPhoneClean),
+    );
+
+    if (isIgnored) {
+      console.log(
+        `[webhook] 🚫 Nomor HP Dikecualikan (${inbound.from}) — pesan dicatat di inbox tanpa auto-reply bot.`,
+      );
+      return;
+    }
+  }
+
   // ── Check Bot Mode ──
   const botMode = (configJson?.bot_mode as string) || "template";
 

@@ -64,6 +64,26 @@ export async function POST(request: NextRequest) {
       return fallback
     }
 
+    const config = parseJson(botCfg.config_json, {}) as Record<string, unknown>
+    const ignoredPhonesRaw = (config?.ignored_phone_numbers as string) || ''
+    if (phone && ignoredPhonesRaw.trim()) {
+      const ignoredPhones = ignoredPhonesRaw
+        .split(/[\s,;]+/)
+        .map((p) => p.replace(/[^\d]/g, '').replace(/^0/, '62'))
+        .filter(Boolean)
+      const cleanPhone = phone.replace(/[^\d]/g, '').replace(/^0/, '62')
+      if (ignoredPhones.some((ip) => cleanPhone.endsWith(ip) || ip.endsWith(cleanPhone))) {
+        return NextResponse.json({
+          reply: '',
+          autoReply: false,
+          handoverToAdmin: true,
+          leadSaved: false,
+          leadData: {},
+          reason: 'Nomor HP masuk dalam daftar pengecualian (diabaikan bot).',
+        })
+      }
+    }
+
     const preset = INDUSTRY_TEMPLATES[botCfg.industry_preset] || INDUSTRY_TEMPLATES.wedding_decor
     const rawFields = parseJson(botCfg.fields_json, []) as BotField[]
     const fields = (rawFields.length > 0 ? rawFields : preset.fields).map((f: BotField) => {

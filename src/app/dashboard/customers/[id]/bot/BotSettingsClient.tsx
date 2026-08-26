@@ -43,6 +43,7 @@ export default function BotSettingsClient({ customerId, hideBackButton }: { cust
   const [enabled, setEnabled] = useState(true)
   const [testModeEnabled, setTestModeEnabled] = useState(false)
   const [testPhoneNumbers, setTestPhoneNumbers] = useState('')
+  const [ignoredPhoneNumbers, setIgnoredPhoneNumbers] = useState('')
 
   // Custom Bot Logic (Webhook Forwarder) State
   const [botMode, setBotMode] = useState<'template' | 'custom'>('template')
@@ -108,6 +109,7 @@ export default function BotSettingsClient({ customerId, hideBackButton }: { cust
         setEnabled(d.enabled ?? true)
         setTestModeEnabled(configJson.test_mode_enabled === true)
         setTestPhoneNumbers(configJson.test_phone_numbers || '')
+        setIgnoredPhoneNumbers(configJson.ignored_phone_numbers || '')
         setBotMode((configJson.bot_mode as 'template' | 'custom') || 'template')
         setCustomWebhookUrl((configJson.custom_webhook_url as string) || '')
         setCustomWebhookSecret((configJson.custom_webhook_secret as string) || '')
@@ -160,6 +162,7 @@ export default function BotSettingsClient({ customerId, hideBackButton }: { cust
           enabled,
           test_mode_enabled: testModeEnabled,
           test_phone_numbers: testPhoneNumbers,
+          ignored_phone_numbers: ignoredPhoneNumbers,
           bot_mode: botMode,
           custom_webhook_url: customWebhookUrl,
           custom_webhook_secret: customWebhookSecret,
@@ -457,6 +460,34 @@ export default function BotSettingsClient({ customerId, hideBackButton }: { cust
             </p>
           </div>
         )}
+      </div>
+
+      {/* Ignored / Blacklisted Phone Numbers Card (Abaikan Bot) */}
+      <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 space-y-4">
+        <div>
+          <h2 className="font-semibold text-white text-sm flex items-center gap-2">
+            <span>🚫 Nomor HP Dikecualikan (Abaikan Bot / Blacklist)</span>
+          </h2>
+          <p className="text-zinc-400 text-xs mt-0.5 leading-relaxed">
+            Nomor-nomor WhatsApp di bawah ini <strong>tidak akan pernah dibalas oleh chatbot</strong> (misalnya nomor pemilik, staf, keluarga, vendor, atau nomor internal). Pesan tetap masuk ke Live Inbox agar Anda bisa membalasnya secara manual.
+          </p>
+        </div>
+
+        <div className="space-y-2">
+          <label className="block text-xs font-semibold text-zinc-300">
+            Daftar Nomor HP (pisahkan dengan koma jika lebih dari 1):
+          </label>
+          <input
+            type="text"
+            value={ignoredPhoneNumbers}
+            onChange={(e) => setIgnoredPhoneNumbers(e.target.value)}
+            placeholder="Contoh: 081234567890, 085156266871, 628998877665"
+            className="w-full bg-zinc-950 border border-zinc-700 rounded-xl px-4 py-2.5 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-rose-500 font-mono"
+          />
+          <p className="text-[11px] text-zinc-400">
+            🛡️ *Semua pesan masuk dari nomor di atas tidak akan memicu auto-reply atau mengubah status lead, sehingga aman untuk percakapan langsung antar manusia.*
+          </p>
+        </div>
       </div>
 
       {/* Bot Mode Toggle */}

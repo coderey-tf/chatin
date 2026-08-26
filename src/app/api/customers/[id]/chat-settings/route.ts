@@ -58,6 +58,7 @@ export async function PUT(
       enabled: Boolean(body.enabled),
       test_mode_enabled: body.test_mode_enabled !== undefined ? Boolean(body.test_mode_enabled) : undefined,
       test_phone_numbers: body.test_phone_numbers !== undefined ? String(body.test_phone_numbers) : undefined,
+      ignored_phone_numbers: body.ignored_phone_numbers !== undefined ? String(body.ignored_phone_numbers) : undefined,
       config: {
         ...(body.bot_mode !== undefined ? { bot_mode: body.bot_mode } : {}),
         ...(body.custom_webhook_url !== undefined ? { custom_webhook_url: body.custom_webhook_url } : {}),
