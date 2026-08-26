@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCustomer, getBotConfig, getLeadByPhone, upsertLead, insertMessageLog, listCustomers } from '@/lib/db'
 import { handleChat, type ChatEngineResult } from '@/lib/chat-engine'
+import { INDUSTRY_TEMPLATES } from '@/lib/industry-templates'
 import type { BotField } from '@/lib/db'
 
 /**
@@ -63,7 +64,23 @@ export async function POST(request: NextRequest) {
       return fallback
     }
 
-    const fields = parseJson(botCfg.fields_json, []) as BotField[]
+    const preset = INDUSTRY_TEMPLATES[botCfg.industry_preset] || INDUSTRY_TEMPLATES.wedding_decor
+    const rawFields = parseJson(botCfg.fields_json, []) as BotField[]
+    const fields = (rawFields.length > 0 ? rawFields : preset.fields).map((f: BotField) => {
+      const defaultPresetField = preset.fields.find((pf: BotField) => pf.key === f.key)
+      return {
+        ...defaultPresetField,
+        ...f,
+        keywords:
+          f.keywords && Object.keys(f.keywords).length > 0
+            ? f.keywords
+            : defaultPresetField?.keywords,
+        options:
+          f.options && f.options.length > 0
+            ? f.options
+            : defaultPresetField?.options,
+      }
+    })
     const templates = parseJson(botCfg.templates_json, {}) as Record<string, string>
     const pricelist_links = parseJson(botCfg.pricelist_links_json, {}) as Record<string, string>
 

@@ -330,6 +330,8 @@ Whenever code is pushed to branch `main`, GitHub Actions automatically:
 
 19. **Superadmin Role-Based Access (`coderey.wiki@gmail.com`)**: Technical developer settings (`⚙️ Pengaturan Webhook & Developer`, Webhook URL, Secret Generator, Timeout, & Test Connection API) are **100% hidden from regular clients** and accessible ONLY when logged in as `coderey.wiki@gmail.com`. Superadmin accounts also unlock the `🛡️ Superadmin Operator` sidebar menu (`/dashboard/customers`, `/dashboard/messages`, `/dashboard/billing`) for platform administration.
 
+20. **Universal Form Line & Copy-Paste Template Extraction Engine**: `lead-parser.ts` implements `extractExplicitFormLine` and multi-pattern name extraction to seamlessly parse customer WhatsApp replies when copying bot templates (supporting leading emojis `👤`, markdown bold asterisks `*Nama (wajib)*:`, label tags `(wajib)`/`(opsional)`, numbered lists `1. Claudia`, and standalone single/multi-line name answers `Claudia\nWedding\nRumah`).
+
 ---
 
 ## Webhook Handling (v2.3.1 — Critical Detail)

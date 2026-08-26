@@ -30,13 +30,13 @@ export const INDUSTRY_TEMPLATES: Record<string, IndustryPreset> = {
     fields: [
       { key: 'name', label: 'Nama', emoji: '👤', type: 'text', required: true, placeholder: 'Nama lengkap' },
       { key: 'event_date', label: 'Tanggal Acara', emoji: '📅', type: 'date', required: false, placeholder: 'contoh: 20 Oktober 2026', default_value: 'Belum pasti' },
-      { key: 'event_type', label: 'Jenis Acara', emoji: '💒', type: 'keyword', required: true,
+      { key: 'event_type', label: 'Jenis Acara', emoji: '💒', type: 'keyword', required: true, placeholder: 'Wedding / Lamaran',
         keywords: {
           'Wedding': ['nikah', 'wedding', 'resepsi', 'akad', 'menikah', 'pernikahan', 'unduh mantu'],
           'Engagement': ['lamaran', 'engagement', 'tunangan', 'melamar', 'siraman'],
         },
       },
-      { key: 'venue_type', label: 'Lokasi Acara', emoji: '🏛️', type: 'keyword', required: true,
+      { key: 'venue_type', label: 'Tempat / Venue (Gedung / Rumah)', emoji: '🏛️', type: 'keyword', required: true, placeholder: 'Gedung / Rumah',
         keywords: {
           'Gedung': ['gedung', 'hotel', 'hall', 'ballroom', 'masjid', 'resto', 'restaurant', 'convention', 'aula', 'villa'],
           'Rumah': ['rumah', 'halaman', 'garasi', 'home', 'kediaman', 'outdoor', 'taman', 'pool', 'rooftop'],

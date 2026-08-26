@@ -484,7 +484,21 @@ async function processInboundMessage(
     INDUSTRY_TEMPLATES.wedding_decor;
 
   const rawFields = parseJson(botCfg.fields_json, []) as BotField[];
-  const fields = rawFields.length > 0 ? rawFields : preset.fields;
+  const fields = (rawFields.length > 0 ? rawFields : preset.fields).map((f) => {
+    const defaultPresetField = preset.fields.find((pf) => pf.key === f.key);
+    return {
+      ...defaultPresetField,
+      ...f,
+      keywords:
+        f.keywords && Object.keys(f.keywords).length > 0
+          ? f.keywords
+          : defaultPresetField?.keywords,
+      options:
+        f.options && f.options.length > 0
+          ? f.options
+          : defaultPresetField?.options,
+    };
+  });
 
   const rawTemplates = parseJson(botCfg.templates_json, {}) as Record<
     string,

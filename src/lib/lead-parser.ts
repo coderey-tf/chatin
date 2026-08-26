@@ -39,13 +39,24 @@ const GREETING_WORDS = [
 ]
 
 const NAME_PATTERNS = [
-  // 1. Nama: Reynaldi (stop at end of line \n or \r)
-  /(?:^|\n)(?:1[.)]\s*|nama\s*[:=-]\s*)([^\n\r]{1,40})/i,
-  /nama\s*(?:saya|aku)?\s*:?\s+([^\n\r]{1,40})/i,
-  // 2. saya + name (first capitalized word after "saya/aku")
-  /(?:saya|aku|namaku|gw|gue)\s+([A-Z][a-zA-Z'-]{1,25})/i,
-  // 3. dengan/perkenalkan + name
-  /(?:dengan|perkenalkan)\s+([A-Z][a-zA-Z'-]{1,25})/i,
+  // 1. WhatsApp form copy-paste / label matching: "👤 *Nama* (wajib) _(Nama lengkap)_: Claudia", "*Nama*: Claudia"
+  /(?:^|\n)\s*(?:[^\w\n\r*]{0,4}\s*)?(?:\d+[.)]\s*)?\*?nama(?:\s*lengkap)?\b[^\n\r:=]*[:=-]\s*([^\n\r]{1,40})/i,
+  
+  // 2. atas nama / a.n / a/n
+  /(?:atas\s+nama|a[./]n)\s*:?\s*([^\n\r]{1,40})/i,
+
+  // 3. nama saya / namaku / saya / aku
+  /(?:nama\s*(?:saya|aku)?|namaku)\s*:?\s+([^\n\r]{1,40})/i,
+  /(?:saya|aku|namaku|gw|gue)\s+([A-Za-z'-]{2,25}(?:\s+[A-Za-z'-]{2,25}){0,2})/i,
+
+  // 4. dengan / perkenalkan / call me
+  /(?:dengan|perkenalkan)\s+([A-Za-z'-]{2,25}(?:\s+[A-Za-z'-]{2,25}){0,2})/i,
+
+  // 5. 1. Claudia (Numbered list format without "nama" label)
+  /(?:^|\n)\s*1[.)]\s*([A-Za-z'-]{2,25}(?:\s+[A-Za-z'-]{2,25}){0,2})/i,
+
+  // 6. 👤 Claudia (Emoji bullet without label)
+  /(?:^|\n)\s*👤\s*([A-Za-z'-]{2,25}(?:\s+[A-Za-z'-]{2,25}){0,2})/i,
 ]
 
 const NAME_STOP_WORDS = [
@@ -54,7 +65,12 @@ const NAME_STOP_WORDS = [
   'bagaimana', 'gimana', 'kenapa', 'kapan', 'dimana', 'siapa',
   'tanggal', 'tgl', 'jenis', 'acara', 'lokasi', 'tempat', 'venue',
   'alamat', 'hp', 'wa', 'telepon', 'email', 'nomor', 'pesanan',
-  'budget', 'harga', 'pembayaran', 'keterangan', 'catatan', 'item', 'produk'
+  'budget', 'harga', 'pembayaran', 'keterangan', 'catatan', 'item', 'produk',
+  'kak', 'kakak', 'min', 'mimin', 'mas', 'mbak', 'om', 'tante', 'sis', 'bro', 'pak', 'bu',
+  'halo', 'hai', 'pagi', 'siang', 'sore', 'malam', 'terima', 'makasih', 'info', 'infonya',
+  'ya', 'dong', 'sih', 'nih', 'oke', 'ok', 'sip', 'siap', 'wajib', 'opsional',
+  'dekor', 'dekorasi', 'pl', 'pricelist', 'katalog', 'paket', 'sewa', 'rental',
+  'lengkap', 'contoh'
 ]
 
 const LOCATIONS = [
@@ -65,6 +81,65 @@ const LOCATIONS = [
   'pondok indah', 'kelapa gading', 'pik', 'kemang', 'cilandak',
   'menteng', 'senayan', 'kuningan', 'sudirman',
 ]
+
+// ─── Helper: Escape Regex ───
+function escapeRegex(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+/**
+ * Checks if the message text contains an explicit form line corresponding to field.label or field.key,
+ * e.g. "👤 *Nama* (wajib) _(Nama lengkap)_: Claudia"
+ *      "💒 *Jenis Acara* (wajib) _(Wedding / Lamaran)_: Wedding"
+ *      "🏛️ *Tempat / Venue* (wajib) _(Gedung / Rumah)_: Rumah"
+ *      "📅 *Tanggal Acara* (opsional) _(contoh: 20 Oktober 2026)_: 20 Oktober 2026"
+ */
+function extractExplicitFormLine(text: string, field: BotField): string | undefined {
+  const labelEscaped = escapeRegex(field.label)
+  const keyEscaped = escapeRegex(field.key.replace(/_/g, ' '))
+
+  // Extract label keyword for relaxed matching if label is complex (e.g. "Tempat / Venue (Gedung / Rumah)" -> "Tempat|Venue")
+  const labelWords = field.label.split(/[\s/()]+/).filter(w => w.length >= 3).map(escapeRegex)
+  const labelWordPattern = labelWords.length > 0 ? labelWords.join('|') : labelEscaped
+
+  const patterns = [
+    new RegExp(
+      `(?:^|\\n)\\s*(?:[^\\w\\n\\r*]{0,4}\\s*)?(?:\\d+[.)]\\s*)?\\*?(?:${labelEscaped}|${labelWordPattern})\\b[^\n\r:=]*[:=-]\\s*([^\\n\\r]+)`,
+      'i'
+    ),
+    new RegExp(
+      `(?:^|\\n)\\s*(?:[^\\w\\n\\r*]{0,4}\\s*)?(?:\\d+[.)]\\s*)?\\*?${keyEscaped}\\b[^\n\r:=]*[:=-]\\s*([^\\n\\r]+)`,
+      'i'
+    ),
+  ]
+
+  for (const pat of patterns) {
+    const m = text.match(pat)
+    if (m && m[1]) {
+      const val = m[1].trim()
+      if (val.length > 0) return val
+    }
+  }
+  return undefined
+}
+
+/**
+ * Clean and format person name, stripping emojis and stop words
+ */
+function cleanExtractedName(raw: string): string | undefined {
+  const firstPart = raw.split(/[\n\r:,]/)[0].trim()
+
+  const words = firstPart.split(/\s+/).filter(w => {
+    const cleanW = w.toLowerCase().replace(/[^a-z]/g, '')
+    return cleanW.length >= 2 && !NAME_STOP_WORDS.includes(cleanW)
+  })
+
+  if (words.length > 0) {
+    const cleanName = words.slice(0, 3).join(' ')
+    return cleanName.replace(/\b\w/g, c => c.toUpperCase())
+  }
+  return undefined
+}
 
 // ─── Lightweight Levenshtein Distance for Typo Detection ───
 
@@ -131,14 +206,27 @@ function extractFieldValue(text: string, field: BotField): string | undefined {
 
   switch (field.type) {
     case 'keyword': {
-      if (!field.keywords) return undefined
+      let keywordsMap = field.keywords
+      if (!keywordsMap || Object.keys(keywordsMap).length === 0) {
+        if (field.placeholder) {
+          const parts = field.placeholder.split(/[\/,|]+/).map(p => p.trim()).filter(Boolean)
+          if (parts.length > 0) {
+            keywordsMap = {}
+            for (const p of parts) {
+              keywordsMap[p] = [p.toLowerCase()]
+            }
+          }
+        }
+      }
+      if (!keywordsMap) return undefined
       
-      // Tokenize message into individual words for typo matching
-      const words = lower.split(/[\s:,\-._/\n\r]+/).filter(w => w.length >= 3)
+      const explicit = extractExplicitFormLine(text, field)
+      const targetText = explicit ? explicit.toLowerCase() : lower
+      const words = targetText.split(/[\s:,\-._/\n\r]+/).filter(w => w.length >= 3)
 
-      for (const [value, keywords] of Object.entries(field.keywords)) {
+      for (const [value, keywords] of Object.entries(keywordsMap)) {
         // 1. Direct substring match
-        if (keywords.some(k => lower.includes(k.toLowerCase()))) {
+        if (keywords.some(k => targetText.includes(k.toLowerCase()))) {
           return value
         }
         // 2. Typo-tolerant Fuzzy match word-by-word against keywords
@@ -148,27 +236,74 @@ function extractFieldValue(text: string, field: BotField): string | undefined {
           }
         }
       }
+
+      // If explicit line didn't yield a match, fallback to searching the whole message
+      if (explicit) {
+        const allWords = lower.split(/[\s:,\-._/\n\r]+/).filter(w => w.length >= 3)
+        for (const [value, keywords] of Object.entries(keywordsMap)) {
+          if (keywords.some(k => lower.includes(k.toLowerCase()))) {
+            return value
+          }
+          for (const kw of keywords) {
+            if (allWords.some(word => isFuzzyMatch(word, kw))) {
+              return value
+            }
+          }
+        }
+      }
       return undefined
     }
 
     case 'select': {
-      if (!field.options) return undefined
-      for (const opt of field.options) {
-        if (lower.includes(opt.toLowerCase())) {
+      let optionsList = field.options
+      if (!optionsList || optionsList.length === 0) {
+        if (field.placeholder) {
+          optionsList = field.placeholder.split(/[\/,|]+/).map(p => p.trim()).filter(Boolean)
+        }
+      }
+      if (!optionsList || optionsList.length === 0) return undefined
+      const explicit = extractExplicitFormLine(text, field)
+      const targetText = explicit ? explicit.toLowerCase() : lower
+      for (const opt of optionsList) {
+        if (targetText.includes(opt.toLowerCase())) {
           return opt
+        }
+      }
+      if (explicit) {
+        for (const opt of optionsList) {
+          if (lower.includes(opt.toLowerCase())) {
+            return opt
+          }
         }
       }
       return undefined
     }
 
     case 'date': {
+      const explicit = extractExplicitFormLine(text, field)
+      if (explicit) {
+        const parsed = parseIndonesianDate(explicit)
+        if (parsed) return parsed
+      }
       return parseIndonesianDate(text)
     }
 
     case 'location': {
+      const explicit = extractExplicitFormLine(text, field)
+      const targetText = explicit ? explicit.toLowerCase() : lower
       for (const loc of LOCATIONS) {
-        if (lower.includes(loc)) {
+        if (targetText.includes(loc)) {
           return loc.replace(/\b\w/g, c => c.toUpperCase())
+        }
+      }
+      if (explicit) {
+        for (const loc of LOCATIONS) {
+          if (lower.includes(loc)) {
+            return loc.replace(/\b\w/g, c => c.toUpperCase())
+          }
+        }
+        if (explicit.length >= 3 && explicit.length <= 60) {
+          return explicit.replace(/\b\w/g, c => c.toUpperCase())
         }
       }
       return undefined
@@ -177,28 +312,50 @@ function extractFieldValue(text: string, field: BotField): string | undefined {
     case 'text': {
       // Name extraction (special case: "text" field with key "name" or "contact_name")
       if (field.key === 'name' || field.key === 'contact_name') {
+        // 1. Check explicit form line first (e.g. "👤 Nama (wajib): Claudia")
+        const explicit = extractExplicitFormLine(text, field)
+        if (explicit) {
+          const cleaned = cleanExtractedName(explicit)
+          if (cleaned) return cleaned
+        }
+
+        // 2. Check regex patterns
         for (const pat of NAME_PATTERNS) {
           const m = text.match(pat)
-          if (m) {
-            // Truncate at first newline or colon or comma
-            let raw = m[1].split(/[\n\r:,]/)[0].trim()
-
-            // Filter out words that match STOP_WORDS (e.g. if raw captured "Reynaldi Tanggal", drop "Tanggal")
-            const words = raw.split(/\s+/).filter(w => {
-              const cleanW = w.toLowerCase().replace(/[^a-z]/g, '')
-              return cleanW.length >= 2 && !NAME_STOP_WORDS.includes(cleanW)
-            })
-
-            if (words.length > 0) {
-              const cleanName = words.slice(0, 3).join(' ')
-              return cleanName.replace(/\b\w/g, c => c.toUpperCase())
-            }
+          if (m && m[1]) {
+            const cleaned = cleanExtractedName(m[1])
+            if (cleaned) return cleaned
           }
         }
+
+        // 3. Freeform line-by-line check (e.g. "Claudia\nWedding\nSby" or standalone "claudia")
+        const trimmed = text.trim()
+        const lines = trimmed.split(/[\n\r]+/).map(l => l.trim()).filter(Boolean)
+
+        for (const line of lines) {
+          // Skip if line contains numbers, colons, emojis, or is too long
+          if (/\d/.test(line) || line.includes(':') || line.length > 35) continue
+          
+          // Skip if line contains greetings
+          if (GREETING_WORDS.some(gw => line.toLowerCase().includes(gw))) continue
+          
+          // Skip if line parses as date
+          if (parseIndonesianDate(line)) continue
+          
+          // Skip if line matches city location
+          if (LOCATIONS.some(loc => line.toLowerCase().includes(loc))) continue
+
+          const cleaned = cleanExtractedName(line)
+          if (cleaned) return cleaned
+        }
+
         return undefined
       }
-      // Generic text: return raw line if short
-      if (text.length <= 80) return text.trim()
+
+      // Generic text field:
+      const explicit = extractExplicitFormLine(text, field)
+      if (explicit) return explicit.trim()
+      if (text.length <= 80 && !text.includes('\n')) return text.trim()
       return undefined
     }
 
@@ -223,7 +380,7 @@ export function isGreeting(text: string, fields: BotField[]): boolean {
       }
     }
     if (field.type === 'date' && /\d/.test(text) && lower.length > 10) return false
-    if ((field.key === 'name' || field.key === 'contact_name') && NAME_PATTERNS.some(p => p.test(text))) return false
+    if ((field.key === 'name' || field.key === 'contact_name') && (NAME_PATTERNS.some(p => p.test(text)) || extractExplicitFormLine(text, field))) return false
   }
   return true
 }

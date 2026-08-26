@@ -257,10 +257,12 @@ export default function BotSettingsClient({ customerId, hideBackButton }: { cust
     e.preventDefault()
     if (!fieldLabel.trim()) return
 
-    const existingKey = editFieldIndex !== null ? editingFields[editFieldIndex]?.key : undefined
+    const originalField = editFieldIndex !== null ? editingFields[editFieldIndex] : null
+    const existingKey = originalField?.key
     const generatedKey = existingKey || fieldLabel.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || `field_${Date.now()}`
 
     const newField: BotField = {
+      ...(originalField || {}),
       key: generatedKey,
       label: fieldLabel.trim(),
       emoji: fieldEmoji.trim() || '📝',

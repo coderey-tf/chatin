@@ -20,16 +20,38 @@ export type { IndustryPreset as IndustryTemplate } from './industry-templates'
 
 // ─── Helpers ───
 
+export function getFieldHint(field: BotField): string | undefined {
+  if (field.placeholder && field.placeholder.trim()) {
+    return field.placeholder.trim()
+  }
+  if (field.type === 'keyword' && field.keywords) {
+    const keys = Object.keys(field.keywords)
+    if (keys.length > 0) return keys.join(' / ')
+  }
+  if (field.type === 'select' && field.options) {
+    if (field.options.length > 0) return field.options.join(' / ')
+  }
+  return undefined
+}
+
 export function buildFieldForms(fields: BotField[]): string {
   return fields
-    .map(f => `${f.emoji} *${f.label}* ${f.required ? '(wajib)' : '(opsional)'}:`)
+    .map(f => {
+      const hint = getFieldHint(f)
+      const hintText = hint ? ` _(${hint})_` : ''
+      return `${f.emoji} *${f.label}* ${f.required ? '(wajib)' : '(opsional)'}${hintText}:`
+    })
     .join('\n')
 }
 
 export function buildMissingFields(fields: BotField[], missingKeys: string[]): string {
   return fields
     .filter(f => missingKeys.includes(f.key))
-    .map(f => `${f.emoji} *${f.label}* ${f.required ? '(wajib)' : '(opsional)'}:`)
+    .map(f => {
+      const hint = getFieldHint(f)
+      const hintText = hint ? ` _(${hint})_` : ''
+      return `${f.emoji} *${f.label}* ${f.required ? '(wajib)' : '(opsional)'}${hintText}:`
+    })
     .join('\n')
 }
 
