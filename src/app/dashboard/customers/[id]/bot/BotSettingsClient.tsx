@@ -71,6 +71,38 @@ export default function BotSettingsClient({ customerId, hideBackButton }: { cust
   const [newLinkKey, setNewLinkKey] = useState('')
   const [newLinkKeywords, setNewLinkKeywords] = useState('')
   const [newLinkUrl, setNewLinkUrl] = useState('')
+  const [generatingShortlink, setGeneratingShortlink] = useState(false)
+
+  const handleGenerateShortlink = async () => {
+    if (!newLinkUrl.trim()) {
+      toast.error('Masukkan URL tujuan terlebih dahulu (misal link Google Drive / Canva / Website)!')
+      return
+    }
+
+    setGeneratingShortlink(true)
+    try {
+      const res = await fetch('/api/shortlinks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          customer_id: id,
+          destination_url: newLinkUrl.trim(),
+        }),
+      })
+
+      const data = await res.json()
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || 'Gagal membuat shortlink')
+      }
+
+      setNewLinkUrl(data.data.short_url)
+      toast.success(`Shortlink Chatin berhasil dibuat: ${data.data.short_url}`)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Gagal membuat shortlink')
+    } finally {
+      setGeneratingShortlink(false)
+    }
+  }
 
   // Simulator Preview State (Static vs Interactive Sandbox)
   const [simMode, setSimMode] = useState<'interactive' | 'static'>('interactive')
@@ -1281,11 +1313,17 @@ export default function BotSettingsClient({ customerId, hideBackButton }: { cust
               const cleanTitle = storedKey.replace(/\[.*?\]/, '').trim()
               const keywordsList = kwMatch ? kwMatch[1].split(',').map(k => k.trim()) : []
 
+              const isShortlink = url.includes('/l/')
               return (
                 <div key={storedKey} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-zinc-950/60 border border-zinc-800/80 rounded-xl p-3.5 hover:border-zinc-700 transition">
                   <div className="min-w-0 space-y-1">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="text-xs text-white font-semibold">{cleanTitle}</span>
+                      {isShortlink && (
+                        <span className="text-[10px] font-mono bg-blue-500/10 text-blue-400 border border-blue-500/20 px-2 py-0.5 rounded-md">
+                          🔗 Shortlink Chatin
+                        </span>
+                      )}
                       {keywordsList.map(kw => (
                         <span key={kw} className="text-[10px] font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded-md">
                           🔑 {kw}
@@ -1336,11 +1374,21 @@ export default function BotSettingsClient({ customerId, hideBackButton }: { cust
           </div>
 
           <div>
-            <label className="text-[11px] text-zinc-400 mb-1 block">URL Link Katalog (PDF / Canva / Website)</label>
+            <div className="flex items-center justify-between mb-1">
+              <label className="text-[11px] text-zinc-400 block">URL Link Katalog (PDF / Canva / Website / Google Drive)</label>
+              <button
+                type="button"
+                onClick={handleGenerateShortlink}
+                disabled={generatingShortlink}
+                className="text-[11px] text-emerald-400 hover:text-emerald-300 flex items-center gap-1 font-medium hover:underline disabled:opacity-50 transition"
+              >
+                <span>{generatingShortlink ? '⏳ Membuat Shortlink...' : '✨ Buat Shortlink Chatin'}</span>
+              </button>
+            </div>
             <div className="flex gap-2">
               <input
                 type="text"
-                placeholder="https://catalog.bisnisanda.com/pricelist"
+                placeholder="https://drive.google.com/... atau https://canva.com/..."
                 value={newLinkUrl}
                 onChange={e => setNewLinkUrl(e.target.value)}
                 className="flex-1 bg-zinc-950 border border-zinc-800 rounded-xl px-3.5 py-2 text-xs text-white placeholder-zinc-600 focus:outline-none focus:border-zinc-700"
@@ -1353,8 +1401,8 @@ export default function BotSettingsClient({ customerId, hideBackButton }: { cust
                 + Simpan Link
               </button>
             </div>
-            <p className="text-[10px] text-zinc-500 mt-1">
-              💡 *Jika kata kunci diisi, bot akan mencocokkan kata kunci tersebut dengan balasan calon pembeli untuk memilih link yang paling sesuai.*
+            <p className="text-[10px] text-zinc-500 mt-1.5">
+              💡 *Jika tidak memiliki domain sendiri, masukkan link Canva/Google Drive lalu klik <strong>"✨ Buat Shortlink Chatin"</strong> untuk mengubahnya menjadi link pendek resmi <code className="text-emerald-400">chatin.coderey.dev/l/...</code>*
             </p>
           </div>
         </div>

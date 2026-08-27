@@ -723,4 +723,103 @@ export async function setOnboardedStatus(userId: string, isOnboarded: boolean = 
   }
 }
 
+// ─── Shortlink Helpers ───
+
+export interface ShortlinkData {
+  slug: string
+  destination_url: string
+  created_at: string
+  clicks: number
+  customer_id?: string
+}
+
+export async function createShortlink(data: {
+  customer_id?: string
+  destination_url: string
+  custom_slug?: string
+}): Promise<{ slug: string; short_url: string; destination_url: string }> {
+  const sb = createAdminClient()
+  let targetCustomerId = data.customer_id
+
+  if (!targetCustomerId) {
+    const { data: custs } = await sb.from('customers').select('id').limit(1)
+    if (custs && custs.length > 0) {
+      targetCustomerId = custs[0].id
+    }
+  }
+
+  if (!targetCustomerId) {
+    throw new Error('Customer ID tidak ditemukan untuk membuat shortlink.')
+  }
+
+  // Generate or sanitize slug
+  const baseSlug = data.custom_slug
+    ? data.custom_slug.toLowerCase().replace(/[^a-z0-9-_]/g, '-').replace(/-+/g, '-').slice(0, 32)
+    : Math.random().toString(36).substring(2, 8)
+
+  const slug = baseSlug || Math.random().toString(36).substring(2, 8)
+
+  const botConfig = await getBotConfig(targetCustomerId)
+  const existingConfig = (typeof botConfig?.config_json === 'object' && botConfig?.config_json !== null)
+    ? (botConfig.config_json as Record<string, unknown>)
+    : {}
+
+  const shortlinks = (existingConfig.shortlinks as Record<string, ShortlinkData>) || {}
+  shortlinks[slug] = {
+    slug,
+    destination_url: data.destination_url,
+    created_at: new Date().toISOString(),
+    clicks: 0,
+    customer_id: targetCustomerId,
+  }
+
+  await sb.from('bot_configs').update({
+    config_json: {
+      ...existingConfig,
+      shortlinks,
+    },
+    updated_at: new Date().toISOString(),
+  }).eq('customer_id', targetCustomerId)
+
+  const appUrl = process.env.KIRIMDEV_APP_URL || 'https://chatin.coderey.dev'
+  const short_url = `${appUrl.replace(/\/+$/, '')}/l/${slug}`
+
+  return {
+    slug,
+    short_url,
+    destination_url: data.destination_url,
+  }
+}
+
+export async function resolveShortlink(slug: string): Promise<string | null> {
+  try {
+    const sb = createAdminClient()
+    const { data: configs } = await sb.from('bot_configs').select('customer_id, config_json')
+    if (!configs) return null
+
+    for (const cfg of configs) {
+      const c = (typeof cfg.config_json === 'object' && cfg.config_json !== null)
+        ? (cfg.config_json as Record<string, unknown>)
+        : null
+
+      if (c && typeof c.shortlinks === 'object' && c.shortlinks !== null) {
+        const links = c.shortlinks as Record<string, ShortlinkData>
+        if (links[slug] && links[slug].destination_url) {
+          // Increment click count
+          links[slug].clicks = (links[slug].clicks || 0) + 1
+          await sb.from('bot_configs')
+            .update({ config_json: c })
+            .eq('customer_id', cfg.customer_id)
+
+          return links[slug].destination_url
+        }
+      }
+    }
+    return null
+  } catch (err) {
+    console.error('resolveShortlink error:', err)
+    return null
+  }
+}
+
 

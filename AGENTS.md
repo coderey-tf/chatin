@@ -334,6 +334,8 @@ Whenever code is pushed to branch `main`, GitHub Actions automatically:
 
 21. **Ignored / Blacklisted Phone Numbers Mode (Abaikan Bot)**: Configurable in `/dashboard/bot` via `ignored_phone_numbers` in `config_json`. When messages arrive from designated numbers (such as business owners, partners, staff, family, or suppliers), the webhook receiver records the messages safely in the Live Inbox but completely suppresses chatbot auto-replies and lead funnel mutations, allowing natural human-to-human conversation without bot interference.
 
+22. **Native Shortlink Generator & Redirect Engine (`/l/[slug]`)**: Built-in shortlink generator (`/api/shortlinks`) allowing businesses without custom domains to convert long external links (Google Drive, Canva, Dropbox, Notion, etc.) into clean branded shortlinks (`https://chatin.coderey.dev/l/[slug]`). Public route `/l/[slug]` resolves destination URLs directly from Supabase and performs instant HTTP 307 redirects while tracking click metrics.
+
 ---
 
 ## Webhook Handling (v2.3.1 — Critical Detail)

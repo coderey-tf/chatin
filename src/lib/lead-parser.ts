@@ -193,6 +193,13 @@ function levenshteinDistance(a: string, b: string): number {
   return matrix[a.length][b.length]
 }
 
+const GREETING_OR_CONVERSATIONAL_WORDS = [
+  'halo', 'hallo', 'hello', 'hai', 'helo', 'admin', 'min', 'kak', 'kakak', 'bro', 'sis',
+  'selamat', 'pagi', 'siang', 'sore', 'malam', 'assalamualaikum', 'info', 'tanya',
+  'minta', 'boleh', 'bisa', 'tolong', 'mau', 'dong', 'ya', 'pesan', 'katalog', 'pricelist',
+  'dekor', 'dekorasi', 'paket', 'biaya', 'harga', 'kontak', 'hubungi'
+]
+
 /**
  * Fuzzy check if text word matches target keyword (tolerating typos)
  * e.g. "Engagnment" -> matches "Engagement"
@@ -201,14 +208,24 @@ function isFuzzyMatch(textWord: string, targetKeyword: string): boolean {
   const w = textWord.toLowerCase().trim()
   const k = targetKeyword.toLowerCase().trim()
 
-  if (w === k || w.includes(k) || k.includes(w)) return true
+  if (w === k) return true
 
-  // Apply Levenshtein fuzzy matching for words >= 4 characters
-  if (w.length >= 4 && k.length >= 4) {
+  // If text word is a common greeting or conversational word, do NOT fuzzy match against domain keywords
+  if (GREETING_OR_CONVERSATIONAL_WORDS.includes(w) && !GREETING_OR_CONVERSATIONAL_WORDS.includes(k)) {
+    return false
+  }
+
+  // Allow substring match only if keyword is at least 4 chars and word is not a greeting
+  if (k.length >= 4 && (w.includes(k) || (w.length >= 5 && k.includes(w)))) {
+    return true
+  }
+
+  // Apply Levenshtein fuzzy matching only for longer words (>= 5 characters) to avoid false positives on short words (e.g. "halo" vs "hall")
+  if (w.length >= 5 && k.length >= 5) {
     const maxLen = Math.max(w.length, k.length)
     const dist = levenshteinDistance(w, k)
-    // Allow up to 2 typos for words >= 6 chars, or 1 typo for words 4-5 chars
-    const maxAllowedDist = maxLen >= 6 ? 2 : 1
+    // Allow up to 2 typos for words >= 7 chars, or 1 typo for words 5-6 chars
+    const maxAllowedDist = maxLen >= 7 ? 2 : 1
     if (dist <= maxAllowedDist) return true
   }
   return false

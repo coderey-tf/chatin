@@ -302,15 +302,43 @@ export function handleChat(
   }
 
   // ── 6. Incomplete → ask for missing fields ──
+  const rawName = leadInfo.field_values['name'] || leadInfo.field_values['contact_name'] || ''
+  const firstName = rawName ? rawName.trim().split(/\s+/)[0] : ''
+  const nameGreeting = firstName ? `Kak ${firstName}` : 'Kak'
+
   const fieldForms = buildFieldForms(fields)
   const missingText = buildMissingFields(fields, leadInfo.missing_fields)
-  const followup = (templates.followup || templates.greeting || '')
-    .replace(/\{\{\s*business_name\s*\}\}/g, business_name)
-    .replace(/\{\{\s*missing_fields\s*\}\}/g, missingText)
-    .replace(/\{\{\s*field_forms\s*\}\}/g, fieldForms)
+
+  const isFirstInteraction = history.length <= 1 && Object.keys(existingData).length === 0
+
+  let replyText = ''
+
+  if (isFirstInteraction && templates.greeting) {
+    // Warm personalized greeting for first-time visitors (e.g. from Bio Link) who already provided partial info like Name
+    replyText = templates.greeting
+      .replace(/Halo\s+Kak!/i, `Halo ${nameGreeting}!`)
+      .replace(/Ditunggu informasinya ya Kak!/i, `Ditunggu informasinya ya ${nameGreeting}!`)
+      .replace(/\{\{\s*business_name\s*\}\}/g, business_name)
+      .replace(/\{\{\s*name\s*\}\}/g, nameGreeting)
+      .replace(/\{\{\s*field_forms\s*\}\}/g, missingText)
+      .replace(/\{\{\s*missing_fields\s*\}\}/g, missingText)
+  } else {
+    // Subsequent followup turn
+    const baseTemplate = templates.followup || templates.greeting || ''
+    replyText = baseTemplate
+      .replace(/Terima kasih infonya Kak!/i, `Terima kasih infonya ${nameGreeting}!`)
+      .replace(/\{\{\s*business_name\s*\}\}/g, business_name)
+      .replace(/\{\{\s*name\s*\}\}/g, nameGreeting)
+      .replace(/\{\{\s*missing_fields\s*\}\}/g, missingText)
+      .replace(/\{\{\s*field_forms\s*\}\}/g, fieldForms)
+  }
+
+  if (!replyText.trim()) {
+    replyText = `Terima kasih infonya ${nameGreeting}! 😊\nBoleh dilengkapi lagi ya:\n${missingText}`
+  }
 
   return {
-    reply: followup || `Terima kasih infonya Kak! 😊\nBoleh dilengkapi lagi ya:\n${missingText}`,
+    reply: replyText,
     leadSaved: false,
     leadData: leadInfo,
     autoReply: true,
