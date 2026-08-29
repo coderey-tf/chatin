@@ -1,393 +1,471 @@
-import { createAdminClient } from './supabase/admin'
-import { getKirim, isValidKirimDevCustomerId } from './kirimdev'
+import { createAdminClient } from "./supabase/admin";
+import { getKirim, isValidKirimDevCustomerId } from "./kirimdev";
 
 export interface Customer {
-  id: string
-  user_id?: string | null
-  name: string
-  email: string | null
-  status: string
-  metadata: string | Record<string, unknown> | null
-  phone_number_id: string | null
-  phone_number: string | null
-  wa_account_status: string | null
-  created_at: string
-  updated_at: string
-  onboarded_at: string | null
+  id: string;
+  user_id?: string | null;
+  name: string;
+  email: string | null;
+  status: string;
+  metadata: string | Record<string, unknown> | null;
+  phone_number_id: string | null;
+  phone_number: string | null;
+  wa_account_status: string | null;
+  created_at: string;
+  updated_at: string;
+  onboarded_at: string | null;
 }
 
 export interface SetupLink {
-  id: string
-  customer_id: string
-  status: string
-  token_last4: string | null
-  expires_at: string | null
-  consumed_at: string | null
-  created_at: string
+  id: string;
+  customer_id: string;
+  status: string;
+  token_last4: string | null;
+  expires_at: string | null;
+  consumed_at: string | null;
+  created_at: string;
 }
 
 export interface MessageLog {
-  id: string
-  customer_id: string | null
-  phone_number_id: string | null
-  to_number: string | null
-  contact_phone: string | null
-  direction: 'inbound' | 'outbound' | string
-  wamid: string | null
-  type: string | null
-  status: string | null
-  content: string | null
-  error: string | null
-  created_at: string
-  customer_name?: string | null
+  id: string;
+  customer_id: string | null;
+  phone_number_id: string | null;
+  to_number: string | null;
+  contact_phone: string | null;
+  direction: "inbound" | "outbound" | string;
+  wamid: string | null;
+  type: string | null;
+  status: string | null;
+  content: string | null;
+  error: string | null;
+  created_at: string;
+  customer_name?: string | null;
 }
 
 export interface BotField {
-  key: string             // data key: e.g. "name", "event_date", "venue_type"
-  label: string           // human label: e.g. "Nama", "Tanggal Acara"
-  emoji: string           // emoji for UI: e.g. "👤", "📅"
-  type: 'text' | 'date' | 'select' | 'keyword' | 'location'
-  required: boolean
-  options?: string[]      // for select type: possible values
-  keywords?: Record<string, string[]>  // for keyword type: value -> list of keywords
-  placeholder?: string
-  default_value?: string  // value to fill if not provided
+  key: string; // data key: e.g. "name", "event_date", "venue_type"
+  label: string; // human label: e.g. "Nama", "Tanggal Acara"
+  emoji: string; // emoji for UI: e.g. "👤", "📅"
+  type: "text" | "date" | "select" | "keyword" | "location";
+  required: boolean;
+  options?: string[]; // for select type: possible values
+  keywords?: Record<string, string[]>; // for keyword type: value -> list of keywords
+  placeholder?: string;
+  default_value?: string; // value to fill if not provided
 }
 
 export interface BotConfig {
-  id: string
-  customer_id: string
-  industry_preset: string
-  enabled: boolean | number
-  config_json: Record<string, unknown> | string | null
-  fields_json: BotField[] | string | null
-  templates_json: Record<string, string> | string | null
-  pricelist_links_json: Record<string, string> | string | null
-  created_at: string
-  updated_at: string
+  id: string;
+  customer_id: string;
+  industry_preset: string;
+  enabled: boolean | number;
+  config_json: Record<string, unknown> | string | null;
+  fields_json: BotField[] | string | null;
+  templates_json: Record<string, string> | string | null;
+  pricelist_links_json: Record<string, string> | string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface Lead {
-  id: string
-  customer_id: string
-  contact_phone: string
-  contact_name: string | null
-  package: string | null
-  status: string
-  data_json: Record<string, unknown> | string | null
-  source: string | null
-  last_inbound_at: string | null
-  created_at: string
-  updated_at: string
+  id: string;
+  customer_id: string;
+  contact_phone: string;
+  contact_name: string | null;
+  package: string | null;
+  status: string;
+  data_json: Record<string, unknown> | string | null;
+  source: string | null;
+  last_inbound_at: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 // ─── Customer Helpers ───
 
 export async function upsertCustomer(data: {
-  id: string
-  user_id?: string | null
-  name: string
-  email?: string | null
-  status?: string
-  metadata?: object | null
-  phone_number_id?: string | null
-  phone_number?: string | null
-  wa_account_status?: string | null
-  created_at?: string
-  updated_at?: string
-  onboarded_at?: string | null
+  id: string;
+  user_id?: string | null;
+  name: string;
+  email?: string | null;
+  status?: string;
+  metadata?: object | null;
+  phone_number_id?: string | null;
+  phone_number?: string | null;
+  wa_account_status?: string | null;
+  created_at?: string;
+  updated_at?: string;
+  onboarded_at?: string | null;
 }): Promise<void> {
-  const sb = createAdminClient()
+  const sb = createAdminClient();
   const payload: Record<string, unknown> = {
     id: data.id,
     name: data.name,
     email: data.email ?? null,
-    status: data.status ?? 'pending',
+    status: data.status ?? "pending",
     updated_at: data.updated_at || new Date().toISOString(),
-  }
+  };
 
-  if (data.metadata !== undefined) payload.metadata = data.metadata
-  if (data.phone_number_id) payload.phone_number_id = data.phone_number_id
-  if (data.phone_number) payload.phone_number = data.phone_number
-  if (data.wa_account_status) payload.wa_account_status = data.wa_account_status
-  if (data.created_at) payload.created_at = data.created_at
-  if (data.onboarded_at) payload.onboarded_at = data.onboarded_at
+  if (data.metadata !== undefined) payload.metadata = data.metadata;
+  if (data.phone_number_id) payload.phone_number_id = data.phone_number_id;
+  if (data.phone_number) payload.phone_number = data.phone_number;
+  if (data.wa_account_status)
+    payload.wa_account_status = data.wa_account_status;
+  if (data.created_at) payload.created_at = data.created_at;
+  if (data.onboarded_at) payload.onboarded_at = data.onboarded_at;
 
-  const { error } = await sb.from('customers').upsert(payload, { onConflict: 'id' })
-  if (error) throw new Error(`upsertCustomer error: ${error.message}`)
+  const { error } = await sb
+    .from("customers")
+    .upsert(payload, { onConflict: "id" });
+  if (error) throw new Error(`upsertCustomer error: ${error.message}`);
 }
 
 export async function getCustomer(id: string): Promise<Customer | null> {
-  const sb = createAdminClient()
-  const { data, error } = await sb.from('customers').select('*').eq('id', id).maybeSingle()
-  if (error) throw new Error(`getCustomer error: ${error.message}`)
-  return data
+  const sb = createAdminClient();
+  const { data, error } = await sb
+    .from("customers")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
+  if (error) throw new Error(`getCustomer error: ${error.message}`);
+  return data;
 }
 
 // Sync local customers with KirimDev BSP platform status
 export async function syncCustomersWithKirimDev(): Promise<void> {
   try {
-    const sb = createAdminClient()
+    const sb = createAdminClient();
 
     // 1. Delete invalid garbage rows (e.g. id = 'undefined', empty id, or name = 'Customer')
-    await sb.from('customers').delete().or('id.eq.undefined,id.eq.,name.eq.Customer')
+    await sb
+      .from("customers")
+      .delete()
+      .or("id.eq.undefined,id.eq.,name.eq.Customer");
 
     // 2. Fetch live customers list from KirimDev BSP API
-    const kirim = getKirim()
-    let kirimList: Array<{ id: string; name?: string; email?: string; status?: string }> = []
+    const kirim = getKirim();
+    let kirimList: Array<{
+      id: string;
+      name?: string;
+      email?: string;
+      status?: string;
+    }> = [];
     try {
-      const res = await kirim.customers.list()
+      const res = await kirim.customers.list();
       if (res && Array.isArray((res as any).items)) {
-        kirimList = (res as any).items
+        kirimList = (res as any).items;
       } else if (Array.isArray(res)) {
-        kirimList = res as any
-      } else if (res && typeof (res as any)[Symbol.asyncIterator] === 'function') {
-        for await (const item of (res as any)) {
-          kirimList.push(item)
+        kirimList = res as any;
+      } else if (
+        res &&
+        typeof (res as any)[Symbol.asyncIterator] === "function"
+      ) {
+        for await (const item of res as any) {
+          kirimList.push(item);
         }
       }
     } catch (err) {
-      console.warn('[syncKirimDev] Could not fetch KirimDev customers:', err)
-      return
+      console.warn("[syncKirimDev] Could not fetch KirimDev customers:", err);
+      return;
     }
 
-    const kirimMap = new Map<string, { id: string; name?: string; email?: string; status?: string }>()
+    const kirimMap = new Map<
+      string,
+      { id: string; name?: string; email?: string; status?: string }
+    >();
     for (const kc of kirimList) {
-      if (kc.id) kirimMap.set(kc.id, kc)
+      if (kc.id) kirimMap.set(kc.id, kc);
     }
 
     // 3. Fetch local customers from Supabase
-    const { data: localCustomers } = await sb.from('customers').select('*')
-    if (!localCustomers) return
+    const { data: localCustomers } = await sb.from("customers").select("*");
+    if (!localCustomers) return;
 
     for (const local of localCustomers) {
       if (!isValidKirimDevCustomerId(local.id)) {
-        await sb.from('customers').delete().eq('id', local.id)
-        continue
+        await sb.from("customers").delete().eq("id", local.id);
+        continue;
       }
 
-      const kirimData = kirimMap.get(local.id)
+      const kirimData = kirimMap.get(local.id);
       if (kirimData) {
         // Customer exists in KirimDev BSP platform!
-        const newStatus = kirimData.status || local.status || 'active'
+        const newStatus = kirimData.status || local.status || "active";
         if (local.status !== newStatus) {
-          await sb.from('customers').update({ status: newStatus }).eq('id', local.id)
+          await sb
+            .from("customers")
+            .update({ status: newStatus })
+            .eq("id", local.id);
         }
       } else {
         // Customer does NOT exist in KirimDev BSP platform!
         // Mark status as 'archived' so it doesn't clutter the Active tab
-        if (local.status !== 'archived') {
-          await sb.from('customers').update({ status: 'archived' }).eq('id', local.id)
+        if (local.status !== "archived") {
+          await sb
+            .from("customers")
+            .update({ status: "archived" })
+            .eq("id", local.id);
         }
       }
     }
   } catch (err) {
-    console.warn('[syncKirimDev] exception:', err)
+    console.warn("[syncKirimDev] exception:", err);
   }
 }
 
-export async function listCustomers(status?: string, userId?: string, userEmail?: string): Promise<Customer[]> {
+export async function listCustomers(
+  status?: string,
+  userId?: string,
+  userEmail?: string,
+): Promise<Customer[]> {
   try {
-    const sb = createAdminClient()
+    const sb = createAdminClient();
 
     // Sync status with KirimDev BSP platform before listing
-    await syncCustomersWithKirimDev()
+    await syncCustomersWithKirimDev();
 
     // Auto-heal: automatically link any existing customer whose email matches userEmail but user_id is null
     if (userId && userEmail) {
-      await sb.from('customers').update({ user_id: userId }).eq('email', userEmail).is('user_id', null)
+      await sb
+        .from("customers")
+        .update({ user_id: userId })
+        .eq("email", userEmail)
+        .is("user_id", null);
     }
 
-    let query = sb.from('customers').select('*').order('created_at', { ascending: false })
+    let query = sb
+      .from("customers")
+      .select("*")
+      .order("created_at", { ascending: false });
     if (userId && userEmail) {
-      query = query.or(`user_id.eq.${userId},email.eq.${userEmail}`)
+      query = query.or(`user_id.eq.${userId},email.eq.${userEmail}`);
     } else if (userId) {
-      query = query.eq('user_id', userId)
+      query = query.eq("user_id", userId);
     }
 
-    if (status) query = query.eq('status', status)
-    const { data, error } = await query
+    if (status) query = query.eq("status", status);
+    const { data, error } = await query;
     if (error) {
-      console.warn('listCustomers warning:', error.message)
-      return []
+      console.warn("listCustomers warning:", error.message);
+      return [];
     }
-    return data || []
+    return data || [];
   } catch (err) {
-    console.warn('listCustomers exception:', err)
-    return []
+    console.warn("listCustomers exception:", err);
+    return [];
   }
 }
 
 // ─── Setup Link Helpers ───
 
 export async function insertSetupLink(data: {
-  id: string
-  customer_id: string
-  status?: string
-  token_last4?: string
-  expires_at?: string
-  created_at?: string
+  id: string;
+  customer_id: string;
+  status?: string;
+  token_last4?: string;
+  expires_at?: string;
+  created_at?: string;
 }): Promise<void> {
-  const sb = createAdminClient()
-  const { error } = await sb.from('setup_links').insert({
+  const sb = createAdminClient();
+  const { error } = await sb.from("setup_links").insert({
     id: data.id,
     customer_id: data.customer_id,
-    status: data.status || 'active',
+    status: data.status || "active",
     token_last4: data.token_last4 || null,
     expires_at: data.expires_at || null,
     created_at: data.created_at || new Date().toISOString(),
-  })
-  if (error) throw new Error(`insertSetupLink error: ${error.message}`)
+  });
+  if (error) throw new Error(`insertSetupLink error: ${error.message}`);
 }
 
 // ─── Message Log Helpers ───
 
 export async function insertMessageLog(data: {
-  id: string
-  customer_id?: string
-  phone_number_id?: string
-  to_number?: string
-  contact_phone?: string
-  direction?: 'inbound' | 'outbound'
-  wamid?: string
-  type?: string
-  status?: string
-  content?: string
-  error?: string
+  id: string;
+  customer_id?: string;
+  phone_number_id?: string;
+  to_number?: string;
+  contact_phone?: string;
+  direction?: "inbound" | "outbound";
+  wamid?: string;
+  type?: string;
+  status?: string;
+  content?: string;
+  error?: string;
 }): Promise<void> {
-  const sb = createAdminClient()
-  const { error } = await sb.from('message_logs').insert({
+  const sb = createAdminClient();
+  const { error } = await sb.from("message_logs").insert({
     id: data.id,
     customer_id: data.customer_id || null,
     phone_number_id: data.phone_number_id || null,
     to_number: data.to_number || null,
     contact_phone: data.contact_phone || data.to_number || null,
-    direction: data.direction || 'outbound',
+    direction: data.direction || "outbound",
     wamid: data.wamid || null,
     type: data.type || null,
     status: data.status || null,
     content: data.content || null,
     error: data.error || null,
     created_at: new Date().toISOString(),
-  })
-  if (error) console.error('insertMessageLog error:', error.message)
+  });
+  if (error) console.error("insertMessageLog error:", error.message);
 }
 
 // ─── Bot Config Helpers ───
 
-export async function getBotConfig(customerId: string): Promise<BotConfig | null> {
-  const sb = createAdminClient()
-  const { data, error } = await sb.from('bot_configs').select('*').eq('customer_id', customerId).maybeSingle()
-  if (error) throw new Error(`getBotConfig error: ${error.message}`)
-  return data
+export async function getBotConfig(
+  customerId: string,
+): Promise<BotConfig | null> {
+  const sb = createAdminClient();
+  const { data, error } = await sb
+    .from("bot_configs")
+    .select("*")
+    .eq("customer_id", customerId)
+    .maybeSingle();
+  if (error) throw new Error(`getBotConfig error: ${error.message}`);
+  return data;
 }
 
 export async function upsertBotConfig(data: {
-  customer_id: string
-  industry_preset?: string
-  enabled?: boolean | number
-  test_mode_enabled?: boolean | number
-  test_phone_numbers?: string
-  ignored_phone_numbers?: string
-  config?: Record<string, unknown>
-  fields?: BotField[]
-  templates?: Record<string, string>
-  pricelist_links?: Record<string, string>
+  customer_id: string;
+  industry_preset?: string;
+  enabled?: boolean | number;
+  test_mode_enabled?: boolean | number;
+  test_phone_numbers?: string;
+  ignored_phone_numbers?: string;
+  config?: Record<string, unknown>;
+  fields?: BotField[];
+  templates?: Record<string, string>;
+  pricelist_links?: Record<string, string>;
 }): Promise<void> {
-  const sb = createAdminClient()
-  const existing = await getBotConfig(data.customer_id)
-  const now = new Date().toISOString()
+  const sb = createAdminClient();
+  const existing = await getBotConfig(data.customer_id);
+  const now = new Date().toISOString();
 
-  const isEnabled = data.enabled !== undefined ? (data.enabled === true || data.enabled === 1) : (existing ? existing.enabled : true)
+  const isEnabled =
+    data.enabled !== undefined
+      ? data.enabled === true || data.enabled === 1
+      : existing
+        ? existing.enabled
+        : true;
 
-  const existingConfig = (typeof existing?.config_json === 'object' && existing?.config_json !== null)
-    ? (existing.config_json as Record<string, unknown>)
-    : (() => { try { return JSON.parse((existing?.config_json as string) || '{}') } catch { return {} } })()
+  const existingConfig =
+    typeof existing?.config_json === "object" && existing?.config_json !== null
+      ? (existing.config_json as Record<string, unknown>)
+      : (() => {
+          try {
+            return JSON.parse((existing?.config_json as string) || "{}");
+          } catch {
+            return {};
+          }
+        })();
 
   const mergedConfig = {
     ...existingConfig,
     ...(data.config || {}),
-    ...(data.test_mode_enabled !== undefined ? { test_mode_enabled: data.test_mode_enabled === true || data.test_mode_enabled === 1 } : {}),
-    ...(data.test_phone_numbers !== undefined ? { test_phone_numbers: data.test_phone_numbers } : {}),
-    ...(data.ignored_phone_numbers !== undefined ? { ignored_phone_numbers: data.ignored_phone_numbers } : {}),
-  }
+    ...(data.test_mode_enabled !== undefined
+      ? {
+          test_mode_enabled:
+            data.test_mode_enabled === true || data.test_mode_enabled === 1,
+        }
+      : {}),
+    ...(data.test_phone_numbers !== undefined
+      ? { test_phone_numbers: data.test_phone_numbers }
+      : {}),
+    ...(data.ignored_phone_numbers !== undefined
+      ? { ignored_phone_numbers: data.ignored_phone_numbers }
+      : {}),
+  };
 
   const payload = {
     customer_id: data.customer_id,
-    industry_preset: data.industry_preset ?? existing?.industry_preset ?? 'generic',
+    industry_preset:
+      data.industry_preset ?? existing?.industry_preset ?? "generic",
     enabled: isEnabled,
     config_json: mergedConfig,
     fields_json: data.fields ?? existing?.fields_json ?? null,
     templates_json: data.templates ?? existing?.templates_json ?? null,
-    pricelist_links_json: data.pricelist_links ?? existing?.pricelist_links_json ?? null,
+    pricelist_links_json:
+      data.pricelist_links ?? existing?.pricelist_links_json ?? null,
     updated_at: now,
-  }
+  };
 
-  const { error } = await sb.from('bot_configs').upsert(payload, { onConflict: 'customer_id' })
-  if (error) throw new Error(`upsertBotConfig error: ${error.message}`)
+  const { error } = await sb
+    .from("bot_configs")
+    .upsert(payload, { onConflict: "customer_id" });
+  if (error) throw new Error(`upsertBotConfig error: ${error.message}`);
 }
 
 // ─── Lead Helpers ───
 
-export async function getLeadByPhone(customerId: string, phone: string): Promise<Lead | null> {
-  const sb = createAdminClient()
+export async function getLeadByPhone(
+  customerId: string,
+  phone: string,
+): Promise<Lead | null> {
+  const sb = createAdminClient();
   const { data, error } = await sb
-    .from('leads')
-    .select('*')
-    .eq('customer_id', customerId)
-    .eq('contact_phone', phone)
-    .maybeSingle()
-  if (error) throw new Error(`getLeadByPhone error: ${error.message}`)
-  return data
+    .from("leads")
+    .select("*")
+    .eq("customer_id", customerId)
+    .eq("contact_phone", phone)
+    .maybeSingle();
+  if (error) throw new Error(`getLeadByPhone error: ${error.message}`);
+  return data;
 }
 
 export async function listLeads(customerId: string): Promise<Lead[]> {
-  const sb = createAdminClient()
+  const sb = createAdminClient();
   const { data, error } = await sb
-    .from('leads')
-    .select('*')
-    .eq('customer_id', customerId)
-    .order('created_at', { ascending: false })
-  if (error) throw new Error(`listLeads error: ${error.message}`)
-  return data || []
+    .from("leads")
+    .select("*")
+    .eq("customer_id", customerId)
+    .order("created_at", { ascending: false });
+  if (error) throw new Error(`listLeads error: ${error.message}`);
+  return data || [];
 }
 
-export function parseLead(lead: Lead): Lead & { data: Record<string, unknown> } {
-  let data: Record<string, unknown> = {}
-  if (typeof lead.data_json === 'object' && lead.data_json !== null) {
-    data = lead.data_json as Record<string, unknown>
-  } else if (typeof lead.data_json === 'string') {
-    try { data = JSON.parse(lead.data_json) } catch { }
+export function parseLead(
+  lead: Lead,
+): Lead & { data: Record<string, unknown> } {
+  let data: Record<string, unknown> = {};
+  if (typeof lead.data_json === "object" && lead.data_json !== null) {
+    data = lead.data_json as Record<string, unknown>;
+  } else if (typeof lead.data_json === "string") {
+    try {
+      data = JSON.parse(lead.data_json);
+    } catch {}
   }
-  return { ...lead, data }
+  return { ...lead, data };
 }
 
 export async function upsertLead(data: {
-  customer_id: string
-  contact_phone: string
-  contact_name?: string
-  package?: string
-  status?: string
-  data?: Record<string, string | undefined>
-  source?: string
-  last_inbound_at?: string
+  customer_id: string;
+  contact_phone: string;
+  contact_name?: string;
+  package?: string;
+  status?: string;
+  data?: Record<string, string | undefined>;
+  source?: string;
+  last_inbound_at?: string;
 }): Promise<string> {
-  const sb = createAdminClient()
-  const existing = await getLeadByPhone(data.customer_id, data.contact_phone)
-  const now = new Date().toISOString()
+  const sb = createAdminClient();
+  const existing = await getLeadByPhone(data.customer_id, data.contact_phone);
+  const now = new Date().toISOString();
 
-  let merged: Record<string, unknown> = {}
+  let merged: Record<string, unknown> = {};
   if (existing?.data_json) {
-    if (typeof existing.data_json === 'object') {
-      merged = { ...(existing.data_json as Record<string, unknown>) }
-    } else if (typeof existing.data_json === 'string') {
-      try { merged = JSON.parse(existing.data_json) } catch { }
+    if (typeof existing.data_json === "object") {
+      merged = { ...(existing.data_json as Record<string, unknown>) };
+    } else if (typeof existing.data_json === "string") {
+      try {
+        merged = JSON.parse(existing.data_json);
+      } catch {}
     }
   }
 
   if (data.data) {
     for (const [k, v] of Object.entries(data.data)) {
-      if (v) merged[k] = v
+      if (v) merged[k] = v;
     }
   }
 
@@ -396,176 +474,212 @@ export async function upsertLead(data: {
     contact_phone: data.contact_phone,
     contact_name: data.contact_name ?? existing?.contact_name ?? null,
     package: data.package ?? existing?.package ?? null,
-    status: data.status ?? existing?.status ?? 'Inquiry',
+    status: data.status ?? existing?.status ?? "Inquiry",
     data_json: merged,
-    source: data.source ?? existing?.source ?? 'whatsapp_bot',
+    source: data.source ?? existing?.source ?? "whatsapp_bot",
     updated_at: now,
-  }
+  };
 
   if (data.last_inbound_at) {
-    payload.last_inbound_at = data.last_inbound_at
+    payload.last_inbound_at = data.last_inbound_at;
   }
 
   const { data: res, error } = await sb
-    .from('leads')
-    .upsert(payload, { onConflict: 'customer_id,contact_phone' })
-    .select('id')
-    .single()
+    .from("leads")
+    .upsert(payload, { onConflict: "customer_id,contact_phone" })
+    .select("id")
+    .single();
 
-  if (error) throw new Error(`upsertLead error: ${error.message}`)
-  return res.id
+  if (error) throw new Error(`upsertLead error: ${error.message}`);
+  return res.id;
 }
 
-export async function updateLead(leadId: string, customerId: string, updates: {
-  status?: string
-  contact_name?: string
-  package?: string
-  data?: Record<string, unknown>
-  data_json?: Record<string, unknown>
-}): Promise<void> {
-  const sb = createAdminClient()
+export async function updateLead(
+  leadId: string,
+  customerId: string,
+  updates: {
+    status?: string;
+    contact_name?: string;
+    package?: string;
+    data?: Record<string, unknown>;
+    data_json?: Record<string, unknown>;
+  },
+): Promise<void> {
+  const sb = createAdminClient();
   const payload: Record<string, unknown> = {
     updated_at: new Date().toISOString(),
-  }
-  if (updates.status) payload.status = updates.status
-  if (updates.contact_name) payload.contact_name = updates.contact_name
-  if (updates.package) payload.package = updates.package
-  if (updates.data) payload.data_json = updates.data
+  };
+  if (updates.status) payload.status = updates.status;
+  if (updates.contact_name) payload.contact_name = updates.contact_name;
+  if (updates.package) payload.package = updates.package;
+  if (updates.data) payload.data_json = updates.data;
 
   const { error } = await sb
-    .from('leads')
+    .from("leads")
     .update(payload)
-    .eq('id', leadId)
-    .eq('customer_id', customerId)
+    .eq("id", leadId)
+    .eq("customer_id", customerId);
 
-  if (error) throw new Error(`updateLead error: ${error.message}`)
+  if (error) throw new Error(`updateLead error: ${error.message}`);
 }
 
-export async function deleteLead(leadId: string, customerId: string): Promise<void> {
-  const sb = createAdminClient()
+export async function deleteLead(
+  leadId: string,
+  customerId: string,
+): Promise<void> {
+  const sb = createAdminClient();
   const { error } = await sb
-    .from('leads')
+    .from("leads")
     .delete()
-    .eq('id', leadId)
-    .eq('customer_id', customerId)
-  if (error) throw new Error(`deleteLead error: ${error.message}`)
+    .eq("id", leadId)
+    .eq("customer_id", customerId);
+  if (error) throw new Error(`deleteLead error: ${error.message}`);
 }
 
 // ─── Inbox & Dashboard Query Helpers ───
 
 export interface InboxContact {
-  contact_phone: string
-  contact_name: string | null
-  customer_id: string
-  customer_name: string
-  last_message: string | null
-  last_message_at: string
-  last_inbound_at: string | null
-  is_24h_open: boolean
+  contact_phone: string;
+  contact_name: string | null;
+  customer_id: string;
+  customer_name: string;
+  last_message: string | null;
+  last_message_at: string;
+  last_inbound_at: string | null;
+  is_24h_open: boolean;
 }
 
-export async function listInboxContacts(customerId?: string, userId?: string): Promise<InboxContact[]> {
-  const sb = createAdminClient()
-  
-  let targetCustomerIds: string[] = []
+export async function listInboxContacts(
+  customerId?: string,
+  userId?: string,
+): Promise<InboxContact[]> {
+  const sb = createAdminClient();
+
+  let targetCustomerIds: string[] = [];
   if (customerId) {
-    targetCustomerIds = [customerId]
+    targetCustomerIds = [customerId];
   } else if (userId) {
-    const userCusts = await listCustomers(undefined, userId)
-    targetCustomerIds = userCusts.map(c => c.id)
-    if (targetCustomerIds.length === 0) return []
+    const userCusts = await listCustomers(undefined, userId);
+    targetCustomerIds = userCusts.map((c) => c.id);
+    if (targetCustomerIds.length === 0) return [];
   }
 
   let query = sb
-    .from('message_logs')
-    .select('customer_id, contact_phone, content, created_at, direction, customers(name)')
-    .order('created_at', { ascending: false })
+    .from("message_logs")
+    .select(
+      "customer_id, contact_phone, content, created_at, direction, customers(name)",
+    )
+    .order("created_at", { ascending: false });
 
   if (targetCustomerIds.length > 0) {
-    query = query.in('customer_id', targetCustomerIds)
+    query = query.in("customer_id", targetCustomerIds);
   }
 
-  const { data, error } = await query
-  if (error) throw new Error(`listInboxContacts error: ${error.message}`)
+  const { data, error } = await query;
+  if (error) throw new Error(`listInboxContacts error: ${error.message}`);
 
   // Group by (customer_id + contact_phone)
-  const map = new Map<string, InboxContact>()
-  const now = new Date().getTime()
-  const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000
+  const map = new Map<string, InboxContact>();
+  const now = new Date().getTime();
+  const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
 
   // We also fetch leads to get lead contact_name and last_inbound_at
-  let leadsQuery = sb.from('leads').select('customer_id, contact_phone, contact_name, last_inbound_at')
+  let leadsQuery = sb
+    .from("leads")
+    .select("customer_id, contact_phone, contact_name, last_inbound_at");
   if (targetCustomerIds.length > 0) {
-    leadsQuery = leadsQuery.in('customer_id', targetCustomerIds)
+    leadsQuery = leadsQuery.in("customer_id", targetCustomerIds);
   }
-  const { data: leads } = await leadsQuery
+  const { data: leads } = await leadsQuery;
 
-  const leadMap = new Map<string, { contact_name: string | null; last_inbound_at: string | null }>()
+  const leadMap = new Map<
+    string,
+    { contact_name: string | null; last_inbound_at: string | null }
+  >();
   for (const l of leads || []) {
     leadMap.set(`${l.customer_id}_${l.contact_phone}`, {
       contact_name: l.contact_name,
       last_inbound_at: l.last_inbound_at,
-    })
+    });
   }
 
   for (const row of data || []) {
-    if (!row.contact_phone || !row.customer_id) continue
-    const key = `${row.customer_id}_${row.contact_phone}`
+    if (!row.contact_phone || !row.customer_id) continue;
+    const key = `${row.customer_id}_${row.contact_phone}`;
     if (!map.has(key)) {
-      const customerName = (row.customers as unknown as { name: string } | null)?.name || row.customer_id
-      const leadInfo = leadMap.get(key)
-      const lastInbound = leadInfo?.last_inbound_at || null
-      const isInboundOpen = lastInbound ? (now - new Date(lastInbound).getTime() < TWENTY_FOUR_HOURS) : false
+      const customerName =
+        (row.customers as unknown as { name: string } | null)?.name ||
+        row.customer_id;
+      const leadInfo = leadMap.get(key);
+      const lastInbound = leadInfo?.last_inbound_at || null;
+      const isInboundOpen = lastInbound
+        ? now - new Date(lastInbound).getTime() < TWENTY_FOUR_HOURS
+        : false;
 
       map.set(key, {
         contact_phone: row.contact_phone,
         contact_name: leadInfo?.contact_name || row.contact_phone,
         customer_id: row.customer_id,
         customer_name: customerName,
-        last_message: row.content || '',
+        last_message: row.content || "",
         last_message_at: row.created_at,
         last_inbound_at: lastInbound,
         is_24h_open: isInboundOpen,
-      })
+      });
     }
   }
 
-  return Array.from(map.values())
+  return Array.from(map.values());
 }
 
-export async function getConversationThread(customerId: string, contactPhone: string, limit = 50): Promise<MessageLog[]> {
-  const sb = createAdminClient()
+export async function getConversationThread(
+  customerId: string,
+  contactPhone: string,
+  limit = 50,
+): Promise<MessageLog[]> {
+  const sb = createAdminClient();
   const { data, error } = await sb
-    .from('message_logs')
-    .select('*')
-    .eq('customer_id', customerId)
-    .eq('contact_phone', contactPhone)
-    .order('created_at', { ascending: true })
-    .limit(limit)
+    .from("message_logs")
+    .select("*")
+    .eq("customer_id", customerId)
+    .eq("contact_phone", contactPhone)
+    .order("created_at", { ascending: true })
+    .limit(limit);
 
-  if (error) throw new Error(`getConversationThread error: ${error.message}`)
-  return data || []
+  if (error) throw new Error(`getConversationThread error: ${error.message}`);
+  return data || [];
 }
 
 export async function getDashboardStats(userId?: string) {
   try {
-    const sb = createAdminClient()
-    const todayStart = new Date().toISOString().split('T')[0]
+    const sb = createAdminClient();
+    const todayStart = new Date().toISOString().split("T")[0];
 
-    const [{ count: totalCustomers }, { count: activeCustomers }] = await Promise.all([
-      sb.from('customers').select('*', { count: 'exact', head: true }),
-      sb.from('customers').select('*', { count: 'exact', head: true }).eq('status', 'active'),
-    ])
+    const [{ count: totalCustomers }, { count: activeCustomers }] =
+      await Promise.all([
+        sb.from("customers").select("*", { count: "exact", head: true }),
+        sb
+          .from("customers")
+          .select("*", { count: "exact", head: true })
+          .eq("status", "active"),
+      ]);
 
     const [{ count: totalLeads }, { count: todayLeads }] = await Promise.all([
-      sb.from('leads').select('*', { count: 'exact', head: true }),
-      sb.from('leads').select('*', { count: 'exact', head: true }).gte('created_at', todayStart),
-    ])
+      sb.from("leads").select("*", { count: "exact", head: true }),
+      sb
+        .from("leads")
+        .select("*", { count: "exact", head: true })
+        .gte("created_at", todayStart),
+    ]);
 
-    const [{ count: totalMessages }, { count: todayMessages }] = await Promise.all([
-      sb.from('message_logs').select('*', { count: 'exact', head: true }),
-      sb.from('message_logs').select('*', { count: 'exact', head: true }).gte('created_at', todayStart),
-    ])
+    const [{ count: totalMessages }, { count: todayMessages }] =
+      await Promise.all([
+        sb.from("message_logs").select("*", { count: "exact", head: true }),
+        sb
+          .from("message_logs")
+          .select("*", { count: "exact", head: true })
+          .gte("created_at", todayStart),
+      ]);
 
     return {
       totalCustomers: totalCustomers || 0,
@@ -574,9 +688,9 @@ export async function getDashboardStats(userId?: string) {
       todayLeads: todayLeads || 0,
       totalMessages: totalMessages || 0,
       todayMessages: todayMessages || 0,
-    }
+    };
   } catch (err) {
-    console.warn('getDashboardStats exception:', err)
+    console.warn("getDashboardStats exception:", err);
     return {
       totalCustomers: 0,
       activeCustomers: 0,
@@ -584,242 +698,298 @@ export async function getDashboardStats(userId?: string) {
       todayLeads: 0,
       totalMessages: 0,
       todayMessages: 0,
-    }
+    };
   }
 }
 
 // ─── Subscriptions & Invoices Helpers ───
 
 export interface Subscription {
-  id: string
-  customer_id: string
-  plan_tier: 'trial' | 'starter' | 'pro' | 'enterprise' | string
-  status: 'trialing' | 'active' | 'past_due' | 'canceled' | 'expired' | string
-  current_period_start: string
-  current_period_end: string
-  max_waba_accounts: number
-  max_leads_per_month: number
-  auto_renew: boolean
-  created_at: string
-  updated_at: string
+  id: string;
+  customer_id: string;
+  plan_tier: "trial" | "starter" | "pro" | "enterprise" | string;
+  status: "trialing" | "active" | "past_due" | "canceled" | "expired" | string;
+  current_period_start: string;
+  current_period_end: string;
+  max_waba_accounts: number;
+  max_leads_per_month: number;
+  auto_renew: boolean;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface Invoice {
-  id: string
-  customer_id: string
-  subscription_id: string | null
-  plan_tier: string
-  amount: number
-  status: 'pending' | 'paid' | 'failed' | 'expired' | string
-  payment_method: string | null
-  payment_url: string | null
-  paid_at: string | null
-  created_at: string
+  id: string;
+  customer_id: string;
+  subscription_id: string | null;
+  plan_tier: string;
+  amount: number;
+  status: "pending" | "paid" | "failed" | "expired" | string;
+  payment_method: string | null;
+  payment_url: string | null;
+  paid_at: string | null;
+  created_at: string;
 }
 
-export async function getSubscription(customerId: string): Promise<Subscription | null> {
-  const sb = createAdminClient()
-  const { data, error } = await sb.from('subscriptions').select('*').eq('customer_id', customerId).maybeSingle()
+export async function getSubscription(
+  customerId: string,
+): Promise<Subscription | null> {
+  const sb = createAdminClient();
+  const { data, error } = await sb
+    .from("subscriptions")
+    .select("*")
+    .eq("customer_id", customerId)
+    .maybeSingle();
   if (error) {
     // Return a default virtual trial subscription if table is empty or error
-    return null
+    return null;
   }
-  return data
+  return data;
 }
 
 export async function upsertSubscription(data: {
-  customer_id: string
-  plan_tier?: string
-  status?: string
-  current_period_start?: string
-  current_period_end?: string
-  max_waba_accounts?: number
-  max_leads_per_month?: number
+  customer_id: string;
+  plan_tier?: string;
+  status?: string;
+  current_period_start?: string;
+  current_period_end?: string;
+  max_waba_accounts?: number;
+  max_leads_per_month?: number;
 }): Promise<void> {
-  const sb = createAdminClient()
-  const existing = await getSubscription(data.customer_id)
+  const sb = createAdminClient();
+  const existing = await getSubscription(data.customer_id);
 
   const payload = {
     customer_id: data.customer_id,
-    plan_tier: data.plan_tier || existing?.plan_tier || 'starter',
-    status: data.status || existing?.status || 'active',
-    current_period_start: data.current_period_start || existing?.current_period_start || new Date().toISOString(),
-    current_period_end: data.current_period_end || existing?.current_period_end || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-    max_waba_accounts: data.max_waba_accounts ?? existing?.max_waba_accounts ?? (data.plan_tier === 'pro' ? 3 : data.plan_tier === 'enterprise' ? 10 : 1),
-    max_leads_per_month: data.max_leads_per_month ?? existing?.max_leads_per_month ?? (data.plan_tier === 'pro' ? 3000 : data.plan_tier === 'enterprise' ? 999999 : 500),
+    plan_tier: data.plan_tier || existing?.plan_tier || "starter",
+    status: data.status || existing?.status || "active",
+    current_period_start:
+      data.current_period_start ||
+      existing?.current_period_start ||
+      new Date().toISOString(),
+    current_period_end:
+      data.current_period_end ||
+      existing?.current_period_end ||
+      new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+    max_waba_accounts:
+      data.max_waba_accounts ??
+      existing?.max_waba_accounts ??
+      (data.plan_tier === "pro" ? 3 : data.plan_tier === "enterprise" ? 10 : 1),
+    max_leads_per_month:
+      data.max_leads_per_month ??
+      existing?.max_leads_per_month ??
+      (data.plan_tier === "pro"
+        ? 3000
+        : data.plan_tier === "enterprise"
+          ? 999999
+          : 500),
     updated_at: new Date().toISOString(),
-  }
+  };
 
-  const { error } = await sb.from('subscriptions').upsert(payload, { onConflict: 'customer_id' })
-  if (error) console.error('upsertSubscription error:', error.message)
+  const { error } = await sb
+    .from("subscriptions")
+    .upsert(payload, { onConflict: "customer_id" });
+  if (error) console.error("upsertSubscription error:", error.message);
 }
 
 export async function listInvoices(customerId: string): Promise<Invoice[]> {
-  const sb = createAdminClient()
-  const { data, error } = await sb.from('invoices').select('*').eq('customer_id', customerId).order('created_at', { ascending: false })
-  if (error) return []
-  return data || []
+  const sb = createAdminClient();
+  const { data, error } = await sb
+    .from("invoices")
+    .select("*")
+    .eq("customer_id", customerId)
+    .order("created_at", { ascending: false });
+  if (error) return [];
+  return data || [];
 }
 
 export async function createInvoice(data: {
-  customer_id: string
-  subscription_id?: string
-  plan_tier: string
-  amount: number
-  payment_method?: string
-  payment_url?: string
+  customer_id: string;
+  subscription_id?: string;
+  plan_tier: string;
+  amount: number;
+  payment_method?: string;
+  payment_url?: string;
 }): Promise<Invoice> {
-  const sb = createAdminClient()
-  const id = `inv_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`
+  const sb = createAdminClient();
+  const id = `inv_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
   const payload = {
     id,
     customer_id: data.customer_id,
     subscription_id: data.subscription_id || null,
     plan_tier: data.plan_tier,
     amount: data.amount,
-    status: 'pending',
-    payment_method: data.payment_method || 'qris',
+    status: "pending",
+    payment_method: data.payment_method || "qris",
     payment_url: data.payment_url || null,
     created_at: new Date().toISOString(),
-  }
+  };
 
-  const { data: inv, error } = await sb.from('invoices').insert(payload).select('*').single()
-  if (error) throw new Error(`createInvoice error: ${error.message}`)
-  return inv
+  const { data: inv, error } = await sb
+    .from("invoices")
+    .insert(payload)
+    .select("*")
+    .single();
+  if (error) throw new Error(`createInvoice error: ${error.message}`);
+  return inv;
 }
 
 export interface UserProfile {
-  id: string
-  full_name: string | null
-  avatar_url: string | null
-  role: string
-  is_onboarded: boolean
-  last_active_at: string
-  created_at: string
+  id: string;
+  full_name: string | null;
+  avatar_url: string | null;
+  role: string;
+  is_onboarded: boolean;
+  last_active_at: string;
+  created_at: string;
 }
 
-export async function getUserProfile(userId: string): Promise<UserProfile | null> {
+export async function getUserProfile(
+  userId: string,
+): Promise<UserProfile | null> {
   try {
-    const sb = createAdminClient()
-    const { data, error } = await sb.from('profiles').select('*').eq('id', userId).maybeSingle()
-    if (error) return null
-    return data
+    const sb = createAdminClient();
+    const { data, error } = await sb
+      .from("profiles")
+      .select("*")
+      .eq("id", userId)
+      .maybeSingle();
+    if (error) return null;
+    return data;
   } catch (err) {
-    console.warn('getUserProfile exception:', err)
-    return null
+    console.warn("getUserProfile exception:", err);
+    return null;
   }
 }
 
-export async function setOnboardedStatus(userId: string, isOnboarded: boolean = true): Promise<void> {
+export async function setOnboardedStatus(
+  userId: string,
+  isOnboarded: boolean = true,
+): Promise<void> {
   try {
-    const sb = createAdminClient()
+    const sb = createAdminClient();
     const { error } = await sb
-      .from('profiles')
-      .update({ is_onboarded: isOnboarded, updated_at: new Date().toISOString() })
-      .eq('id', userId)
-    if (error) console.error('setOnboardedStatus error:', error.message)
+      .from("profiles")
+      .update({
+        is_onboarded: isOnboarded,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", userId);
+    if (error) console.error("setOnboardedStatus error:", error.message);
   } catch (err) {
-    console.warn('setOnboardedStatus exception:', err)
+    console.warn("setOnboardedStatus exception:", err);
   }
 }
 
 // ─── Shortlink Helpers ───
 
 export interface ShortlinkData {
-  slug: string
-  destination_url: string
-  created_at: string
-  clicks: number
-  customer_id?: string
+  slug: string;
+  destination_url: string;
+  created_at: string;
+  clicks: number;
+  customer_id?: string;
 }
 
 export async function createShortlink(data: {
-  customer_id?: string
-  destination_url: string
-  custom_slug?: string
+  customer_id?: string;
+  destination_url: string;
+  custom_slug?: string;
 }): Promise<{ slug: string; short_url: string; destination_url: string }> {
-  const sb = createAdminClient()
-  let targetCustomerId = data.customer_id
+  const sb = createAdminClient();
+  let targetCustomerId = data.customer_id;
 
   if (!targetCustomerId) {
-    const { data: custs } = await sb.from('customers').select('id').limit(1)
+    const { data: custs } = await sb.from("customers").select("id").limit(1);
     if (custs && custs.length > 0) {
-      targetCustomerId = custs[0].id
+      targetCustomerId = custs[0].id;
     }
   }
 
   if (!targetCustomerId) {
-    throw new Error('Customer ID tidak ditemukan untuk membuat shortlink.')
+    throw new Error("Customer ID tidak ditemukan untuk membuat shortlink.");
   }
 
   // Generate or sanitize slug
   const baseSlug = data.custom_slug
-    ? data.custom_slug.toLowerCase().replace(/[^a-z0-9-_]/g, '-').replace(/-+/g, '-').slice(0, 32)
-    : Math.random().toString(36).substring(2, 8)
+    ? data.custom_slug
+        .toLowerCase()
+        .replace(/[^a-z0-9-_]/g, "-")
+        .replace(/-+/g, "-")
+        .slice(0, 32)
+    : Math.random().toString(36).substring(2, 8);
 
-  const slug = baseSlug || Math.random().toString(36).substring(2, 8)
+  const slug = baseSlug || Math.random().toString(36).substring(2, 8);
 
-  const botConfig = await getBotConfig(targetCustomerId)
-  const existingConfig = (typeof botConfig?.config_json === 'object' && botConfig?.config_json !== null)
-    ? (botConfig.config_json as Record<string, unknown>)
-    : {}
+  const botConfig = await getBotConfig(targetCustomerId);
+  const existingConfig =
+    typeof botConfig?.config_json === "object" &&
+    botConfig?.config_json !== null
+      ? (botConfig.config_json as Record<string, unknown>)
+      : {};
 
-  const shortlinks = (existingConfig.shortlinks as Record<string, ShortlinkData>) || {}
+  const shortlinks =
+    (existingConfig.shortlinks as Record<string, ShortlinkData>) || {};
   shortlinks[slug] = {
     slug,
     destination_url: data.destination_url,
     created_at: new Date().toISOString(),
     clicks: 0,
     customer_id: targetCustomerId,
-  }
+  };
 
-  await sb.from('bot_configs').update({
-    config_json: {
-      ...existingConfig,
-      shortlinks,
-    },
-    updated_at: new Date().toISOString(),
-  }).eq('customer_id', targetCustomerId)
+  await sb
+    .from("bot_configs")
+    .update({
+      config_json: {
+        ...existingConfig,
+        shortlinks,
+      },
+      updated_at: new Date().toISOString(),
+    })
+    .eq("customer_id", targetCustomerId);
 
-  const appUrl = process.env.KIRIMDEV_APP_URL || 'https://chatin.coderey.dev'
-  const short_url = `${appUrl.replace(/\/+$/, '')}/l/${slug}`
+  const appUrl = process.env.KIRIMDEV_APP_URL || "https://chatin.coderey.dev";
+  const short_url = `${appUrl.replace(/\/+$/, "")}/l/${slug}`;
 
   return {
     slug,
     short_url,
     destination_url: data.destination_url,
-  }
+  };
 }
 
 export async function resolveShortlink(slug: string): Promise<string | null> {
   try {
-    const sb = createAdminClient()
-    const { data: configs } = await sb.from('bot_configs').select('customer_id, config_json')
-    if (!configs) return null
+    const sb = createAdminClient();
+    const { data: configs } = await sb
+      .from("bot_configs")
+      .select("customer_id, config_json");
+    if (!configs) return null;
 
     for (const cfg of configs) {
-      const c = (typeof cfg.config_json === 'object' && cfg.config_json !== null)
-        ? (cfg.config_json as Record<string, unknown>)
-        : null
+      const c =
+        typeof cfg.config_json === "object" && cfg.config_json !== null
+          ? (cfg.config_json as Record<string, unknown>)
+          : null;
 
-      if (c && typeof c.shortlinks === 'object' && c.shortlinks !== null) {
-        const links = c.shortlinks as Record<string, ShortlinkData>
+      if (c && typeof c.shortlinks === "object" && c.shortlinks !== null) {
+        const links = c.shortlinks as Record<string, ShortlinkData>;
         if (links[slug] && links[slug].destination_url) {
           // Increment click count
-          links[slug].clicks = (links[slug].clicks || 0) + 1
-          await sb.from('bot_configs')
+          links[slug].clicks = (links[slug].clicks || 0) + 1;
+          await sb
+            .from("bot_configs")
             .update({ config_json: c })
-            .eq('customer_id', cfg.customer_id)
+            .eq("customer_id", cfg.customer_id);
 
-          return links[slug].destination_url
+          return links[slug].destination_url;
         }
       }
     }
-    return null
+    return null;
   } catch (err) {
-    console.error('resolveShortlink error:', err)
-    return null
+    console.error("resolveShortlink error:", err);
+    return null;
   }
 }
-
-

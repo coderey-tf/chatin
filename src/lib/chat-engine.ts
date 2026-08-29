@@ -34,9 +34,13 @@ export function getFieldHint(field: BotField): string | undefined {
   return undefined
 }
 
-export function buildFieldForms(fields: BotField[]): string {
+export function buildFieldForms(fields: BotField[], currentValues: Record<string, string> = {}): string {
   return fields
     .map(f => {
+      const existingVal = currentValues[f.key]
+      if (existingVal && existingVal.trim()) {
+        return `${f.emoji} *${f.label}*: ${existingVal.trim()}`
+      }
       const hint = getFieldHint(f)
       const hintText = hint ? ` _(${hint})_` : ''
       return `${f.emoji} *${f.label}* ${f.required ? '(wajib)' : '(opsional)'}${hintText}:`
@@ -185,8 +189,13 @@ export function buildPricelistResponse(
   const matched = findMatchingPricelistLink(fieldValues, pricelistLinks, fields)
 
   const fieldSummary = fields
-    .filter(f => fieldValues[f.key])
-    .map(f => `${f.emoji} *${f.label}*: ${fieldValues[f.key]}`)
+    .map(f => {
+      let val = fieldValues[f.key] || f.default_value
+      if (!val) return null
+      if (val === 'Belum pasti') val = 'Belum Dikonfirmasi'
+      return `${f.emoji} *${f.label}*: ${val}`
+    })
+    .filter(Boolean)
     .join('\n')
 
   const templateToUse = (completionTemplate && completionTemplate.trim())
@@ -315,13 +324,14 @@ export function handleChat(
 
   if (isFirstInteraction && templates.greeting) {
     // Warm personalized greeting for first-time visitors (e.g. from Bio Link) who already provided partial info like Name
+    const fieldFormsWithValues = buildFieldForms(fields, leadInfo.field_values)
     replyText = templates.greeting
       .replace(/Halo\s+Kak!/i, `Halo ${nameGreeting}!`)
       .replace(/Ditunggu informasinya ya Kak!/i, `Ditunggu informasinya ya ${nameGreeting}!`)
       .replace(/\{\{\s*business_name\s*\}\}/g, business_name)
       .replace(/\{\{\s*name\s*\}\}/g, nameGreeting)
-      .replace(/\{\{\s*field_forms\s*\}\}/g, missingText)
-      .replace(/\{\{\s*missing_fields\s*\}\}/g, missingText)
+      .replace(/\{\{\s*field_forms\s*\}\}/g, fieldFormsWithValues)
+      .replace(/\{\{\s*missing_fields\s*\}\}/g, fieldFormsWithValues)
   } else {
     // Subsequent followup turn
     const baseTemplate = templates.followup || templates.greeting || ''

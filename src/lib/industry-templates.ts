@@ -29,17 +29,32 @@ export const INDUSTRY_TEMPLATES: Record<string, IndustryPreset> = {
     description: 'Dekorasi pernikahan, lamaran, ulang tahun, engagement',
     fields: [
       { key: 'name', label: 'Nama', emoji: '👤', type: 'text', required: true, placeholder: 'Nama lengkap' },
-      { key: 'event_date', label: 'Tanggal Acara', emoji: '📅', type: 'date', required: false, placeholder: 'contoh 20 Oktober 2026', default_value: 'Belum pasti' },
+      { key: 'event_date', label: 'Tanggal Acara', emoji: '📅', type: 'date', required: false, placeholder: 'contoh 20 Oktober 2026', default_value: 'Belum Dikonfirmasi' },
       { key: 'event_type', label: 'Jenis Acara', emoji: '💒', type: 'keyword', required: true, placeholder: 'Wedding / Lamaran',
         keywords: {
-          'Wedding': ['nikah', 'wedding', 'resepsi', 'akad', 'menikah', 'pernikahan', 'unduh mantu'],
-          'Engagement': ['lamaran', 'engagement', 'tunangan', 'melamar', 'siraman'],
+          'Wedding': [
+            'nikah', 'wedding', 'resepsi', 'akad', 'menikah', 'pernikahan', 'unduh mantu', 'ngunduh mantu',
+            'walimah', 'walimatul ursy', 'pemberkatan', 'holy matrimony', 'matrimony', 'ijab kabul',
+            'intimate wedding', 'private wedding', 'vow renewal', 'after party'
+          ],
+          'Engagement': [
+            'lamaran', 'engagement', 'tunangan', 'melamar', 'siraman', 'tingjing', 'sangjit',
+            'teapai', 'tea pai', 'baki seserahan', 'seserahan', 'hantaran', 'midodareni',
+            'pengajian', 'bridal shower', 'propose', 'proposal', 'akad saja', 'akad only', 'intimate engagement'
+          ],
         },
       },
       { key: 'venue_type', label: 'Tempat / Venue (Gedung / Rumah)', emoji: '🏛️', type: 'keyword', required: true, placeholder: 'Gedung / Rumah',
         keywords: {
-          'Gedung': ['gedung', 'hotel', 'hall', 'ballroom', 'masjid', 'resto', 'restaurant', 'convention', 'aula', 'villa'],
-          'Rumah': ['rumah', 'halaman', 'garasi', 'home', 'kediaman', 'outdoor', 'taman', 'pool', 'rooftop'],
+          'Gedung': [
+            'gedung', 'hotel', 'hall', 'ballroom', 'masjid', 'resto', 'restoran', 'restaurant',
+            'cafe', 'kafe', 'convention', 'aula', 'villa', 'palace', 'resort', 'clubhouse',
+            'ruang serbaguna', 'indoor', 'gallery', 'pavilion', 'function hall'
+          ],
+          'Rumah': [
+            'rumah', 'halaman', 'garasi', 'home', 'kediaman', 'outdoor', 'taman', 'garden',
+            'pool', 'poolside', 'rooftop', 'pantai', 'beach', 'kebun', 'pekarangan', 'tenda rumah'
+          ],
         },
       },
     ],
@@ -187,7 +202,7 @@ export const INDUSTRY_TEMPLATES: Record<string, IndustryPreset> = {
     fields: [
       { key: 'name', label: 'Nama Lengkap', emoji: '👤', type: 'text', required: true, placeholder: 'Nama Kakak' },
       { key: 'inquiry', label: 'Pertanyaan / Kebutuhan', emoji: '💬', type: 'text', required: true, placeholder: 'Deskripsi singkat kebutuhan Anda' },
-      { key: 'date', label: 'Rencana Pelaksanaan', emoji: '📅', type: 'date', required: false, default_value: 'Belum pasti', placeholder: 'Tanggal (bisa dikosongi)' },
+      { key: 'date', label: 'Rencana Pelaksanaan', emoji: '📅', type: 'date', required: false, default_value: 'Belum Dikonfirmasi', placeholder: 'Tanggal (bisa dikosongi)' },
       { key: 'location', label: 'Lokasi / Kota', emoji: '📍', type: 'location', required: false, placeholder: 'Kota asal Anda' },
     ],
     default_greeting:
