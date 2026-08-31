@@ -382,6 +382,7 @@ async function processInboundMessage(
   inbound: { from: string; body: string; waName?: string; wamid?: string },
   phoneNumberId?: string,
 ) {
+  const sb = createAdminClient();
   const botCfg = await getBotConfig(customerId);
   const custRow = await getCustomer(customerId);
   const businessName = custRow?.name || "Bisnis Kami";
@@ -543,8 +544,135 @@ async function processInboundMessage(
       ? rawLinks
       : preset.default_pricelist_links;
 
-  // 2. Check existing lead
+  // 2. Check existing lead & Bot Intervention Filters (Solusi 1, 2, 3)
   const existingLead = await getLeadByPhone(customerId, inbound.from);
+  const existingLeadData =
+    typeof existingLead?.data_json === "object" && existingLead.data_json !== null
+      ? (existingLead.data_json as Record<string, unknown>)
+      : (() => {
+          try {
+            return JSON.parse((existingLead?.data_json as string) || "{}");
+          } catch {
+            return {};
+          }
+        })();
+
+  // ── Solusi 2: Check Contact-Level Bot Disabled Toggle ──
+  const isBotDisabledForContact =
+    existingLeadData?.bot_disabled === true ||
+    existingLeadData?.bot_disabled === "true";
+  if (isBotDisabledForContact) {
+    console.log(
+      `[webhook] 🛑 Bot dinonaktifkan untuk kontak ${inbound.from} (Solusi 2: Toggle Contact) — pesan dicatat ke inbox tanpa auto-reply.`,
+    );
+    if (existingLead) {
+      await sb
+        .from("leads")
+        .update({ last_inbound_at: new Date().toISOString() })
+        .eq("id", existingLead.id);
+    }
+    return;
+  }
+
+  // ── Solusi 1: Check Human Takeover / Admin Replied Detection ──
+  // A. If lead is already past Inquiry status (e.g. Contacted, Booked, Completed, Cancelled, Paused)
+  if (existingLead && existingLead.status !== "Inquiry") {
+    console.log(
+      `[webhook] 👤 Lead status '${existingLead.status}' bukan Inquiry untuk ${inbound.from} — auto-reply dilewati (Human Takeover).`,
+    );
+    await sb
+      .from("leads")
+      .update({ last_inbound_at: new Date().toISOString() })
+      .eq("id", existingLead.id);
+    return;
+  }
+
+  // B. If lead has admin_takeover flag
+  if (
+    existingLeadData?.admin_takeover === true ||
+    existingLeadData?.admin_takeover === "true"
+  ) {
+    console.log(
+      `[webhook] 👤 Lead ditandai admin_takeover untuk ${inbound.from} — auto-reply dilewati.`,
+    );
+    if (existingLead) {
+      await sb
+        .from("leads")
+        .update({ last_inbound_at: new Date().toISOString() })
+        .eq("id", existingLead.id);
+    }
+    return;
+  }
+
+  // C. Check message_logs if an admin recently sent a manual reply (type === 'admin_reply')
+  const { data: recentAdminReply } = await sb
+    .from("message_logs")
+    .select("id, created_at, type")
+    .eq("customer_id", customerId)
+    .eq("contact_phone", inbound.from)
+    .eq("direction", "outbound")
+    .eq("type", "admin_reply")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (recentAdminReply) {
+    console.log(
+      `[webhook] 👤 Admin pernah membalas manual kontak ${inbound.from} pada ${recentAdminReply.created_at} — auto-reply bot dinonaktifkan (Human Takeover).`,
+    );
+    if (existingLead) {
+      await sb
+        .from("leads")
+        .update({
+          last_inbound_at: new Date().toISOString(),
+          status: "Contacted",
+        })
+        .eq("id", existingLead.id);
+    }
+    return;
+  }
+
+  // ── Solusi 3: Filter Waktu Aktivasi (Bot Enabled Timestamp / New Contacts Only) ──
+  const newContactsOnly = configJson?.new_contacts_only !== false; // default: true
+  const botEnabledAt = configJson?.bot_enabled_at
+    ? new Date(configJson.bot_enabled_at as string).getTime()
+    : null;
+
+  if (newContactsOnly && botEnabledAt) {
+    // Check if this contact has message logs created before bot_enabled_at
+    const { data: earlyMsg } = await sb
+      .from("message_logs")
+      .select("created_at")
+      .eq("customer_id", customerId)
+      .eq("contact_phone", inbound.from)
+      .lt("created_at", new Date(botEnabledAt).toISOString())
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+
+    if (earlyMsg) {
+      console.log(
+        `[webhook] 🕒 Kontak lama sebelum bot diaktifkan (${inbound.from}, pesan awal: ${earlyMsg.created_at} vs bot_enabled_at: ${new Date(botEnabledAt).toISOString()}) — auto-reply diabaikan.`,
+      );
+      if (existingLead) {
+        await sb
+          .from("leads")
+          .update({ last_inbound_at: new Date().toISOString() })
+          .eq("id", existingLead.id);
+      } else {
+        await upsertLead({
+          customer_id: customerId,
+          contact_phone: inbound.from,
+          contact_name: inbound.waName || undefined,
+          status: "Contacted",
+          data: { pre_bot_contact: "true" },
+          source: "whatsapp_inbound",
+          last_inbound_at: new Date().toISOString(),
+        });
+      }
+      return;
+    }
+  }
 
   // 3. Run chat engine
   const result = handleChat(inbound.body, [], existingLead || null, {
@@ -766,7 +894,7 @@ async function sendWhatsAppReply(
         to_number: to,
         contact_phone: to,
         direction: "outbound",
-        type: "text",
+        type: "bot_reply",
         status: data.data?.status || "sent",
         content: text,
       });

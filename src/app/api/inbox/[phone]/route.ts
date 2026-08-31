@@ -92,7 +92,7 @@ export async function POST(
     const sb = createAdminClient();
     const { data: lead } = await sb
       .from("leads")
-      .select("last_inbound_at")
+      .select("last_inbound_at, status")
       .eq("customer_id", customerId)
       .eq("contact_phone", toPhone)
       .maybeSingle();
@@ -124,7 +124,7 @@ export async function POST(
       text: { body: message.trim() },
     });
 
-    // Log outbound message
+    // Log outbound message as admin manual reply (Solusi 1: Human Takeover)
     await insertMessageLog({
       id: result.id || `msg_${Date.now()}`,
       customer_id: customerId,
@@ -132,10 +132,26 @@ export async function POST(
       to_number: toPhone,
       contact_phone: toPhone,
       direction: "outbound",
-      type: "text",
+      type: "admin_reply",
       status: result.status || "pending",
       content: message.trim(),
     });
+
+    // Automatically mark lead as Contacted / admin takeover so bot will not interrupt
+    try {
+      const { upsertLead } = await import("@/lib/db");
+      await upsertLead({
+        customer_id: customerId,
+        contact_phone: toPhone,
+        status: lead?.status && lead.status !== "Inquiry" ? lead.status : "Contacted",
+        data: {
+          admin_takeover: "true",
+          admin_replied_at: new Date().toISOString(),
+        },
+      });
+    } catch (leadErr) {
+      console.warn("[inbox] Failed to auto-update lead status on admin reply:", leadErr);
+    }
 
     return NextResponse.json({ data: result, success: true });
   } catch (error) {

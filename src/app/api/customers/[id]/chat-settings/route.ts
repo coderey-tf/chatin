@@ -64,6 +64,8 @@ export async function PUT(
         ...(body.custom_webhook_url !== undefined ? { custom_webhook_url: body.custom_webhook_url } : {}),
         ...(body.custom_webhook_secret !== undefined ? { custom_webhook_secret: body.custom_webhook_secret } : {}),
         ...(body.custom_webhook_timeout_ms !== undefined ? { custom_webhook_timeout_ms: Number(body.custom_webhook_timeout_ms) } : {}),
+        ...(body.new_contacts_only !== undefined ? { new_contacts_only: Boolean(body.new_contacts_only) } : {}),
+        ...(body.bot_enabled_at !== undefined ? { bot_enabled_at: body.bot_enabled_at } : {}),
       },
       fields: body.fields,
       templates: body.templates,

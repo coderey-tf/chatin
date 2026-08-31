@@ -361,6 +361,7 @@ export async function upsertBotConfig(data: {
         })();
 
   const mergedConfig = {
+    new_contacts_only: true, // default: only reply to new contacts who message after bot is enabled
     ...existingConfig,
     ...(data.config || {}),
     ...(data.test_mode_enabled !== undefined
@@ -376,6 +377,11 @@ export async function upsertBotConfig(data: {
       ? { ignored_phone_numbers: data.ignored_phone_numbers }
       : {}),
   };
+
+  // If bot is enabled, ensure bot_enabled_at timestamp is set
+  if (isEnabled && !mergedConfig.bot_enabled_at) {
+    mergedConfig.bot_enabled_at = now;
+  }
 
   const payload = {
     customer_id: data.customer_id,

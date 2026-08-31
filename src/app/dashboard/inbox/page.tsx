@@ -53,10 +53,61 @@ export default function InboxPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<'all' | 'open' | 'closed'>('all')
   const [showRightPanel, setShowRightPanel] = useState<boolean>(false)
+  const [togglingBot, setTogglingBot] = useState(false)
 
   const toast = useToast()
   const chatBottomRef = useRef<HTMLDivElement>(null)
   const supabase = createClient()
+
+  // Calculate if bot is disabled for current active lead
+  const isLeadBotDisabled = (() => {
+    if (!activeLead) return false
+    const dataObj = typeof activeLead.data_json === 'object' && activeLead.data_json !== null
+      ? activeLead.data_json as Record<string, string>
+      : (() => { try { return JSON.parse(activeLead.data_json as string || '{}') } catch { return {} } })()
+    return dataObj?.bot_disabled === 'true' || dataObj?.bot_disabled === true || activeLead.status !== 'Inquiry'
+  })()
+
+  // Toggle Bot active/disabled for selected contact
+  const handleToggleBot = async () => {
+    if (!selectedContact || togglingBot) return
+
+    const currentData = typeof activeLead?.data_json === 'object' && activeLead.data_json !== null
+      ? activeLead.data_json as Record<string, string>
+      : (() => { try { return JSON.parse(activeLead?.data_json as string || '{}') } catch { return {} } })()
+
+    const currentlyDisabled = currentData?.bot_disabled === 'true' || currentData?.bot_disabled === true || (activeLead && activeLead.status !== 'Inquiry')
+    const nextDisabled = !currentlyDisabled
+
+    setTogglingBot(true)
+    try {
+      const res = await fetch(`/api/inbox/${selectedContact.contact_phone}/bot-status`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          customer_id: selectedContact.customer_id,
+          bot_disabled: nextDisabled,
+        }),
+      })
+
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Gagal mengubah status bot')
+
+      if (data.lead) {
+        setActiveLead(data.lead)
+      }
+
+      if (nextDisabled) {
+        toast.info('🛑 Bot dinonaktifkan untuk kontak ini. Percakapan diambil alih oleh admin CS.')
+      } else {
+        toast.success('🤖 Bot diaktifkan kembali untuk kontak ini!')
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Gagal mengubah status bot')
+    } finally {
+      setTogglingBot(false)
+    }
+  }
 
   // Fetch inbox contact list
   const fetchContacts = useCallback(async () => {
@@ -403,6 +454,16 @@ export default function InboxPage() {
                         ⏰ Jendela 24j Closed
                       </span>
                     )}
+
+                    <span
+                      className={`px-1.5 py-0.5 rounded text-[10px] font-semibold border ${
+                        isLeadBotDisabled
+                          ? 'bg-amber-500/15 text-amber-300 border-amber-500/30'
+                          : 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
+                      }`}
+                    >
+                      {isLeadBotDisabled ? '👤 CS Manual' : '🤖 Bot Aktif'}
+                    </span>
                   </div>
                 </div>
               </div>
@@ -539,6 +600,42 @@ export default function InboxPage() {
                   Status: {activeLead?.status || 'Inquiry'}
                 </span>
               </div>
+            </div>
+
+            {/* Bot Status & Handover Control Card (Solusi 2: Toggle Bot per Kontak) */}
+            <div className="p-3.5 border-b border-zinc-800 bg-zinc-950/40">
+              <div className="flex items-center justify-between gap-2 mb-1.5">
+                <span className="text-[11px] font-bold text-zinc-300 uppercase tracking-wider flex items-center gap-1.5">
+                  <span>🤖</span> Status Chatbot
+                </span>
+                <span
+                  className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                    isLeadBotDisabled
+                      ? 'bg-amber-500/15 text-amber-300 border-amber-500/30'
+                      : 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
+                  }`}
+                >
+                  {isLeadBotDisabled ? '👤 Manual CS' : '🤖 Bot Aktif'}
+                </span>
+              </div>
+
+              <p className="text-[11px] text-zinc-400 leading-relaxed mb-2.5">
+                {isLeadBotDisabled
+                  ? 'Bot dinonaktifkan untuk nomor ini. Pesan ditangani penuh oleh admin CS secara manual.'
+                  : 'Bot aktif dan akan otomatis membalas sapaan & mengumpulkan form data.'}
+              </p>
+
+              <button
+                onClick={handleToggleBot}
+                disabled={togglingBot}
+                className={`w-full py-2 px-3 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 border shadow-sm ${
+                  isLeadBotDisabled
+                    ? 'bg-emerald-600 hover:bg-emerald-500 text-zinc-950 border-emerald-400/40 shadow-emerald-500/10'
+                    : 'bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border-amber-500/30'
+                } disabled:opacity-50`}
+              >
+                <span>{togglingBot ? 'Memproses...' : isLeadBotDisabled ? '▶️ Aktifkan Kembali Bot' : '🛑 Matikan Bot (Ambil Alih CS)'}</span>
+              </button>
             </div>
 
             {/* Extracted Lead Data */}

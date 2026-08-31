@@ -44,6 +44,8 @@ export default function BotSettingsClient({ customerId, hideBackButton }: { cust
   const [testModeEnabled, setTestModeEnabled] = useState(false)
   const [testPhoneNumbers, setTestPhoneNumbers] = useState('')
   const [ignoredPhoneNumbers, setIgnoredPhoneNumbers] = useState('')
+  const [newContactsOnly, setNewContactsOnly] = useState(true)
+  const [botEnabledAt, setBotEnabledAt] = useState<string | null>(null)
 
   // Custom Bot Logic (Webhook Forwarder) State
   const [botMode, setBotMode] = useState<'template' | 'custom'>('template')
@@ -142,6 +144,8 @@ export default function BotSettingsClient({ customerId, hideBackButton }: { cust
         setTestModeEnabled(configJson.test_mode_enabled === true)
         setTestPhoneNumbers(configJson.test_phone_numbers || '')
         setIgnoredPhoneNumbers(configJson.ignored_phone_numbers || '')
+        setNewContactsOnly(configJson.new_contacts_only !== false)
+        setBotEnabledAt(configJson.bot_enabled_at ? String(configJson.bot_enabled_at) : null)
         setBotMode((configJson.bot_mode as 'template' | 'custom') || 'template')
         setCustomWebhookUrl((configJson.custom_webhook_url as string) || '')
         setCustomWebhookSecret((configJson.custom_webhook_secret as string) || '')
@@ -165,6 +169,12 @@ export default function BotSettingsClient({ customerId, hideBackButton }: { cust
     }
   }, [simHistory, simMode])
 
+  const handleResetBotEnabledAt = () => {
+    const now = new Date().toISOString()
+    setBotEnabledAt(now)
+    toast.info(`Waktu aktivasi bot diatur ulang ke saat ini. Klik "Simpan Konfigurasi Bot" untuk menyimpan.`)
+  }
+
   const applyTemplate = (key: string) => {
     const t = TEMPLATES[key]
     if (!t) return
@@ -186,6 +196,7 @@ export default function BotSettingsClient({ customerId, hideBackButton }: { cust
     setSaving(true)
     setMsg(null)
     try {
+      const effectiveBotEnabledAt = botEnabledAt || (enabled ? new Date().toISOString() : null)
       const res = await fetch(`/api/customers/${id}/chat-settings`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -195,6 +206,8 @@ export default function BotSettingsClient({ customerId, hideBackButton }: { cust
           test_mode_enabled: testModeEnabled,
           test_phone_numbers: testPhoneNumbers,
           ignored_phone_numbers: ignoredPhoneNumbers,
+          new_contacts_only: newContactsOnly,
+          bot_enabled_at: effectiveBotEnabledAt,
           bot_mode: botMode,
           custom_webhook_url: customWebhookUrl,
           custom_webhook_secret: customWebhookSecret,
@@ -454,6 +467,51 @@ export default function BotSettingsClient({ customerId, hideBackButton }: { cust
         >
           <div className={`absolute top-1 w-6 h-6 bg-white rounded-full transition-transform shadow ${enabled ? 'translate-x-7' : 'translate-x-1'}`} />
         </button>
+      </div>
+
+      {/* New Contacts Only & Activation Time Protection Card (Solusi 3) */}
+      <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 space-y-4">
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex-1 min-w-0 pr-4">
+            <h2 className="font-semibold text-white text-sm flex items-center gap-2">
+              <span>🕒 Perlindungan Percakapan Berjalan (Hanya Balas Kontak Baru)</span>
+            </h2>
+            <p className="text-zinc-400 text-xs mt-0.5 leading-relaxed">
+              Mencegah bot menyapa ulang atau mengganggu percakapan WhatsApp yang <strong>sudah berjalan sebelum bot diaktifkan</strong>. Bot hanya akan menyapa kontak baru yang pertama kali masuk setelah jam aktivasi bot.
+            </p>
+          </div>
+          <button
+            onClick={() => setNewContactsOnly(e => !e)}
+            className={`w-14 h-8 rounded-full relative transition-colors shrink-0 ${newContactsOnly ? 'bg-emerald-500' : 'bg-zinc-700'}`}
+          >
+            <div className={`absolute top-1 w-6 h-6 bg-white rounded-full transition-transform shadow ${newContactsOnly ? 'translate-x-7' : 'translate-x-1'}`} />
+          </button>
+        </div>
+
+        {newContactsOnly && (
+          <div className="pt-3 border-t border-zinc-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs bg-zinc-950/50 p-3 rounded-xl border border-zinc-800/80">
+            <div className="space-y-0.5">
+              <span className="text-zinc-400 block text-[11px]">Waktu Bot Diaktifkan:</span>
+              <span className="font-mono font-bold text-emerald-400">
+                {botEnabledAt
+                  ? new Date(botEnabledAt).toLocaleString('id-ID', {
+                      dateStyle: 'medium',
+                      timeStyle: 'short',
+                    }) + ' WIB'
+                  : 'Belum diatur (akan menggunakan waktu saat Anda klik Simpan)'}
+              </span>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleResetBotEnabledAt}
+              className="bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 text-[11px] font-semibold px-3 py-1.5 rounded-lg transition self-start sm:self-auto shrink-0 flex items-center gap-1"
+            >
+              <span>🔄</span>
+              <span>Reset Waktu ke Sekarang</span>
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Live WhatsApp Testing Whitelist Mode Card */}
