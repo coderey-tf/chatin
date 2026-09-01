@@ -673,17 +673,136 @@ async function processInboundMessage(
       return;
     }
   }
+  // 3. Fetch recent conversation history (NEW — was always [] before)
+  let history: Array<{ role: string; content: string }> = []
+  try {
+    const { data: recentMsgs } = await sb
+      .from("message_logs")
+      .select("direction, content")
+      .eq("customer_id", customerId)
+      .eq("contact_phone", inbound.from)
+      .order("created_at", { ascending: false })
+      .limit(10)
 
-  // 3. Run chat engine
-  const result = handleChat(inbound.body, [], existingLead || null, {
+    if (recentMsgs && recentMsgs.length > 0) {
+      history = recentMsgs
+        .reverse()
+        .slice(-5)
+        .map((m: { direction: string; content: string }) => ({
+          role: m.direction === "inbound" ? "user" : "assistant",
+          content: m.content || "",
+        }))
+        .filter((h) => h.content.trim().length > 0)
+    }
+  } catch {
+    console.log("[webhook] Could not fetch history, using empty")
+  }
+
+  // 4. Run chat engine with real history
+  const result = handleChat(inbound.body, history, existingLead || null, {
     fields,
     templates,
     pricelist_links: pricelistLinks,
     business_name: businessName,
   });
 
-  // 4. Save/update lead
-  const fieldValues = result.leadData.field_values || {};
+  // 5. Guardrail v2 — validate draft before sending
+  let finalReply = result.reply
+  let handoverByGuardrail = false
+  let guardrailEntities: Record<string, string> = {}
+  let guardrailIntent: string | undefined
+
+  if (result.autoReply && result.reply) {
+    try {
+      const baseUrl =
+        process.env.NEXT_PUBLIC_APP_URL ||
+        process.env.KIRIMDEV_APP_URL ||
+        "http://localhost:3000"
+
+      const existingLeadForGuardrail: Record<string, string> = {}
+      const existingJson =
+        typeof existingLead?.data_json === "object" && existingLead.data_json !== null
+          ? (existingLead.data_json as Record<string, unknown>)
+          : {}
+      for (const [k, v] of Object.entries(existingJson)) {
+        if (typeof v === "string" && v) existingLeadForGuardrail[k] = v
+      }
+      const currentLeadForGuardrail: Record<string, string> = {
+        ...existingLeadForGuardrail,
+        ...(result.leadData.field_values as Record<string, string> || {}),
+      }
+
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), 4000)
+
+      const guardrailRes = await fetch(`${baseUrl}/api/guardrail`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_message: inbound.body,
+          draft_reply: result.reply,
+          chat_history: history,
+          lead_data: currentLeadForGuardrail,
+          bot_rules: {
+            business_name: businessName,
+            fields: fields.map((f: BotField) => ({
+              key: f.key,
+              label: f.label,
+              type: f.type,
+              required: f.required,
+              keywords: f.keywords,
+            })),
+            pricelist_links: pricelistLinks,
+          },
+        }),
+        signal: controller.signal,
+      })
+
+      clearTimeout(timeout)
+
+      if (guardrailRes.ok) {
+        const gr = await guardrailRes.json()
+
+        if (!gr.valid) {
+          console.log(`[webhook] 🛡️ Guardrail flagged: ${gr.reason} (intent=${gr.intent})`)
+
+          if (gr.corrected_reply === "" && gr.intent === "admin_handoff") {
+            // Admin handoff — don't send bot reply, let human take over
+            handoverByGuardrail = true
+            finalReply = ""
+            console.log("[webhook] 🛡️ Guardrail triggered admin handover — no auto-reply")
+          } else if (gr.corrected_reply) {
+            finalReply = gr.corrected_reply
+          }
+
+          if (gr.extracted_entities) {
+            guardrailEntities = gr.extracted_entities
+          }
+          guardrailIntent = gr.intent
+
+          // Handle cancel intent — mark lead as Completed or similar
+          if (gr.intent === "cancel" && gr.corrected_reply) {
+            // We still send goodbye message
+            finalReply = gr.corrected_reply
+          }
+        }
+      } else {
+        console.warn(`[webhook] Guardrail returned ${guardrailRes.status}, using draft`)
+      }
+    } catch (grError) {
+      console.warn(
+        "[webhook] Guardrail call failed (non-fatal, using draft):",
+        grError instanceof Error ? grError.message : grError,
+      )
+    }
+  }
+
+  // 6. Save/update lead (merged: chat-engine + guardrail entities)
+  const fieldValues: Record<string, string> = {
+    ...(result.leadData.field_values as Record<string, string> || {}),
+    ...guardrailEntities,
+  }
+
   const hasData = Object.keys(fieldValues).some(
     (k) => k !== "_package" && fieldValues[k],
   );
@@ -704,32 +823,40 @@ async function processInboundMessage(
         undefined,
       package: dataObj["_package"],
       status: result.leadData.is_complete
-        ? result.handoverToAdmin
+        ? result.handoverToAdmin || handoverByGuardrail
           ? "Contacted"
           : "Inquiry"
-        : "Inquiry",
+        : guardrailIntent === "cancel"
+          ? "Cancelled"
+          : "Inquiry",
       data: dataObj,
       source: "whatsapp_bot",
       last_inbound_at: new Date().toISOString(),
     });
   }
 
-  // 5. Auto-reply
-  if (result.autoReply && result.reply && effectivePhoneId) {
+  // 7. Auto-reply (with guardrail-corrected finalReply)
+  if (
+    result.autoReply &&
+    finalReply &&
+    !handoverByGuardrail &&
+    effectivePhoneId
+  ) {
     await sendWhatsAppReply(
       effectivePhoneId,
       inbound.from,
-      result.reply,
+      finalReply,
       customerId,
     );
   }
 
-  // 6. Mark as read (ONLY if bot auto-replied and has NOT handed over to human admin)
+  // 8. Mark as read (ONLY if bot auto-replied and has NOT handed over)
   if (
     inbound.wamid &&
     effectivePhoneId &&
     result.autoReply &&
-    !result.handoverToAdmin
+    !result.handoverToAdmin &&
+    !handoverByGuardrail
   ) {
     try {
       const phone = kirim.phoneNumbers(effectivePhoneId);
